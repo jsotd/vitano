@@ -1,3 +1,4 @@
+import Image from "next/image";
 import WaitlistForm from "./components/WaitlistForm";
 
 const VALUE_PROPS = [
@@ -38,9 +39,14 @@ export default function Home() {
     <div className="min-h-screen bg-[#0a0a0a] text-white">
       {/* Nav */}
       <nav className="flex items-center justify-between px-6 pt-6 max-w-5xl mx-auto">
-        <span className="text-white font-black text-xl tracking-tight">
-          vitano<span className="text-[#9b6bff]">.</span>
-        </span>
+        <Image
+          src="/logo_ring_check.png"
+          alt="Vitano"
+          height={36}
+          width={144}
+          className="object-contain"
+          priority
+        />
         <a
           href="#waitlist"
           className="text-sm font-semibold text-neutral-400 hover:text-white transition-colors"
@@ -159,9 +165,13 @@ export default function Home() {
 
       {/* Footer */}
       <footer className="border-t border-neutral-900 px-6 py-8 max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-        <span className="text-white font-black text-lg tracking-tight">
-          vitano<span className="text-[#9b6bff]">.</span>
-        </span>
+        <Image
+          src="/logo_ring_check.png"
+          alt="Vitano"
+          height={28}
+          width={112}
+          className="object-contain"
+        />
         <p className="text-neutral-600 text-sm">
           Questions?{" "}
           <a
