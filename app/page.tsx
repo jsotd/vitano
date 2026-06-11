@@ -168,10 +168,10 @@ export default function Home() {
         <p className="text-neutral-600 text-sm">
           Questions?{" "}
           <a
-            href="mailto:hello@vitano.app"
+            href="mailto:hello@getvitano.com"
             className="text-neutral-400 hover:text-white transition-colors"
           >
-            hello@vitano.app
+            hello@getvitano.com
           </a>
         </p>
         <p className="text-neutral-700 text-xs">© 2026 Vitano</p>
