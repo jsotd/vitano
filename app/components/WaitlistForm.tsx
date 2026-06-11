@@ -24,19 +24,19 @@ export default function WaitlistForm() {
     setErrorMsg("");
 
     try {
-      const res = await fetch("https://formspree.io/f/xnjygqwy", {
+      const res = await fetch("/api/waitlist", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email.trim().toLowerCase() }),
       });
 
-      if (res.ok) {
+      if (res.status === 201) {
         setState("success");
         return;
       }
 
-      const data = (await res.json()) as { errors?: { message: string }[] };
-      setErrorMsg(data.errors?.[0]?.message ?? "Something went wrong. Try again.");
+      const data = (await res.json()) as { error?: string };
+      setErrorMsg(data.error ?? "Something went wrong. Try again.");
       setState("error");
     } catch {
       setErrorMsg("Network error. Check your connection and try again.");

@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { addToWaitlist } from "@/services/waitlist";
 
 export async function POST(req: NextRequest) {
   let body: unknown;
@@ -25,21 +24,27 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid email address" }, { status: 400 });
   }
 
-  const result = await addToWaitlist(email, "landing");
-
-  if (result.duplicate) {
-    return NextResponse.json(
-      { error: "You're already on the list!" },
-      { status: 409 }
-    );
+  const apiKey = process.env.MAILERLITE_API_KEY;
+  if (!apiKey) {
+    return NextResponse.json({ error: "Server misconfiguration" }, { status: 500 });
   }
 
-  if (!result.success) {
-    return NextResponse.json(
-      { error: result.error ?? "Something went wrong" },
-      { status: 500 }
-    );
+  const mlRes = await fetch("https://connect.mailerlite.com/api/subscribers", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({ email }),
+  });
+
+  if (mlRes.ok) {
+    return NextResponse.json({ ok: true }, { status: 201 });
   }
 
-  return NextResponse.json({ ok: true }, { status: 201 });
+  const mlBody = (await mlRes.json()) as { message?: string };
+  return NextResponse.json(
+    { error: mlBody.message ?? "Something went wrong" },
+    { status: mlRes.status }
+  );
 }
