@@ -3,19 +3,19 @@ import WaitlistForm from "./components/WaitlistForm";
 
 const VALUE_PROPS = [
   {
-    icon: "📊",
-    title: "Protein-first dashboard",
-    body: "See your #1 number front and center — not buried under calories and micronutrients.",
+    icon: "/feat_icon_1.png",
+    title: "Protein, front and center",
+    body: "Stop digging through calories and micros. Your #1 number is the first thing you see — every time you open the app.",
   },
   {
-    icon: "📸",
-    title: "AI photo logging you can trust",
-    body: "Snap it, confirm in one tap. No more guessing or typing — just eat and move on.",
+    icon: "/feat_icon_2.png",
+    title: "Just snap it",
+    body: "Photo your plate, confirm in a tap. No weighing, no searching a database. Accurate macros in seconds.",
   },
   {
-    icon: "⚡",
-    title: "Your usuals, one tap",
-    body: "Meal-prep meals and go-to foods log instantly. Routine eating should feel effortless.",
+    icon: "/feat_icon_3.png",
+    title: "Your meals remember themselves",
+    body: "The foods you eat on repeat log in one tap. Meal prep and daily staples, finally effortless.",
   },
 ];
 
@@ -90,16 +90,21 @@ export default function Home() {
 
       {/* Value props */}
       <section className="px-6 py-20 max-w-5xl mx-auto">
-        <h2 className="text-center text-xs font-semibold uppercase tracking-[0.2em] text-neutral-500 mb-12">
-          Built differently
-        </h2>
+        <div className="text-center mb-12">
+          <h2 className="text-2xl sm:text-3xl font-black text-white mb-3">
+            Built for lifters, not dieters
+          </h2>
+          <p className="text-neutral-500 text-sm sm:text-base max-w-xl mx-auto leading-relaxed">
+            Most apps bury protein under a wall of numbers. Vitano puts the one thing that builds muscle first — and makes tracking it effortless.
+          </p>
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
           {VALUE_PROPS.map((vp) => (
             <div
               key={vp.title}
               className="bg-neutral-950 border border-neutral-800 rounded-2xl p-6 flex flex-col gap-4"
             >
-              <span className="text-3xl">{vp.icon}</span>
+              <Image src={vp.icon} alt={vp.title} width={64} height={64} className="object-contain" />
               <div>
                 <h3 className="font-bold text-white text-lg leading-tight mb-2">
                   {vp.title}
@@ -109,6 +114,9 @@ export default function Home() {
             </div>
           ))}
         </div>
+        <p className="text-center text-neutral-600 text-sm mt-10">
+          One number. One photo. One tap. That&apos;s the whole point.
+        </p>
       </section>
 
       {/* Divider */}
