@@ -5,7 +5,8 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
 
 :root {
-  --accent: #a3e635;
+  --accent: #9b6bff;
+  --accent-deep: #6d3fd4;
 }
 
 html {

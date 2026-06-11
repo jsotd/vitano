@@ -1,6 +1,5 @@
 import WaitlistForm from "./components/WaitlistForm";
 
-
 const VALUE_PROPS = [
   {
     icon: "📊",
@@ -40,7 +39,7 @@ export default function Home() {
       {/* Nav */}
       <nav className="flex items-center justify-between px-6 pt-6 max-w-5xl mx-auto">
         <span className="text-white font-black text-xl tracking-tight">
-          Vita<span className="text-lime-400">no</span>
+          vitano<span className="text-[#9b6bff]">.</span>
         </span>
         <a
           href="#waitlist"
@@ -53,7 +52,7 @@ export default function Home() {
       {/* Hero */}
       <section className="px-6 pt-20 pb-16 max-w-3xl mx-auto text-center">
         <div className="inline-flex items-center gap-2 bg-neutral-900 border border-neutral-800 rounded-full px-4 py-1.5 mb-8">
-          <span className="w-2 h-2 rounded-full bg-lime-400 animate-pulse" />
+          <span className="w-2 h-2 rounded-full bg-[#9b6bff] animate-pulse" />
           <span className="text-neutral-400 text-sm font-medium">
             Be first to try Vitano — early access coming soon
           </span>
@@ -62,7 +61,7 @@ export default function Home() {
         <h1 className="text-5xl sm:text-7xl font-black leading-[1.05] tracking-tight mb-6">
           Hit your protein
           <br />
-          <span className="text-lime-400">on autopilot.</span>
+          <span className="text-[#9b6bff]">on autopilot.</span>
         </h1>
 
         <p className="text-xl sm:text-2xl text-neutral-400 leading-relaxed mb-12 max-w-xl mx-auto">
@@ -161,7 +160,7 @@ export default function Home() {
       {/* Footer */}
       <footer className="border-t border-neutral-900 px-6 py-8 max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
         <span className="text-white font-black text-lg tracking-tight">
-          Vita<span className="text-lime-400">no</span>
+          vitano<span className="text-[#9b6bff]">.</span>
         </span>
         <p className="text-neutral-600 text-sm">
           Questions?{" "}

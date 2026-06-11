@@ -47,7 +47,7 @@ export default function WaitlistForm() {
   if (state === "success") {
     return (
       <div className="flex flex-col items-center gap-3 py-6">
-        <div className="w-12 h-12 rounded-full bg-lime-400 flex items-center justify-center text-black text-2xl font-bold">
+        <div className="w-12 h-12 rounded-full bg-[#9b6bff] flex items-center justify-center text-white text-2xl font-bold">
           ✓
         </div>
         <p className="text-xl font-bold text-white">You&apos;re on the list ✅</p>
@@ -62,7 +62,7 @@ export default function WaitlistForm() {
   if (state === "duplicate") {
     return (
       <div className="flex flex-col items-center gap-3 py-6">
-        <div className="w-12 h-12 rounded-full bg-neutral-700 flex items-center justify-center text-lime-400 text-2xl">
+        <div className="w-12 h-12 rounded-full bg-neutral-700 flex items-center justify-center text-[#9b6bff] text-2xl">
           👌
         </div>
         <p className="text-xl font-bold text-white">Already on the list.</p>
@@ -86,7 +86,7 @@ export default function WaitlistForm() {
             }}
             onBlur={() => email && validate(email)}
             placeholder="your@email.com"
-            className="w-full px-4 py-3.5 rounded-xl bg-neutral-900 border border-neutral-700 text-white placeholder-neutral-500 focus:outline-none focus:border-lime-400 focus:ring-1 focus:ring-lime-400 transition-colors text-base"
+            className="w-full px-4 py-3.5 rounded-xl bg-neutral-900 border border-neutral-700 text-white placeholder-neutral-500 focus:outline-none focus:border-[#9b6bff] focus:ring-1 focus:ring-[#9b6bff] transition-colors text-base"
             disabled={state === "loading"}
             aria-label="Email address"
           />
@@ -97,7 +97,7 @@ export default function WaitlistForm() {
         <button
           type="submit"
           disabled={state === "loading"}
-          className="px-6 py-3.5 rounded-xl bg-lime-400 text-black font-bold text-base hover:bg-lime-300 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap"
+          className="px-6 py-3.5 rounded-xl bg-[#6d3fd4] text-white font-bold text-base hover:bg-[#9b6bff] active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap"
         >
           {state === "loading" ? "Joining…" : "Join the waitlist"}
         </button>
