@@ -1,7 +1,5 @@
 import WaitlistForm from "./components/WaitlistForm";
 
-// Config — change EARLY_ACCESS_SPOTS to update the badge without touching copy
-const EARLY_ACCESS_SPOTS = 100;
 
 const VALUE_PROPS = [
   {
@@ -57,7 +55,7 @@ export default function Home() {
         <div className="inline-flex items-center gap-2 bg-neutral-900 border border-neutral-800 rounded-full px-4 py-1.5 mb-8">
           <span className="w-2 h-2 rounded-full bg-lime-400 animate-pulse" />
           <span className="text-neutral-400 text-sm font-medium">
-            Early access — first {EARLY_ACCESS_SPOTS} get it free for life
+            Be first to try Vitano — early access coming soon
           </span>
         </div>
 
@@ -75,7 +73,7 @@ export default function Home() {
         <div id="waitlist" className="max-w-lg mx-auto">
           <WaitlistForm />
           <p className="mt-3 text-neutral-600 text-xs">
-            No spam. No credit card. Just early access.
+            We&apos;re building Vitano now. Join the waitlist and you&apos;ll be first to get access when it launches.
           </p>
         </div>
       </section>
