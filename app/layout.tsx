@@ -10,8 +10,8 @@ export const metadata: Metadata = {
     canonical: "https://getvitano.com",
   },
   icons: {
-    icon: "/logo_appicon_purple.png",
-    apple: "/logo_appicon_purple.png",
+    icon: "/vitano_icon_transparent.png",
+    apple: "/vitano_icon_transparent.png",
   },
   openGraph: {
     title: "Vitano — Hit your protein on autopilot",

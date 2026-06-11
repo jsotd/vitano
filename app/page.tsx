@@ -40,10 +40,10 @@ export default function Home() {
       {/* Nav */}
       <nav className="flex items-center justify-between px-6 pt-6 max-w-5xl mx-auto">
         <Image
-          src="/logo_ring_check.png"
+          src="/vitano_logo_transparent_white.png"
           alt="Vitano"
-          height={36}
-          width={144}
+          height={40}
+          width={160}
           className="object-contain"
           priority
         />
@@ -166,10 +166,10 @@ export default function Home() {
       {/* Footer */}
       <footer className="border-t border-neutral-900 px-6 py-8 max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
         <Image
-          src="/logo_ring_check.png"
+          src="/vitano_logo_transparent_white.png"
           alt="Vitano"
-          height={28}
-          width={112}
+          height={30}
+          width={120}
           className="object-contain"
         />
         <p className="text-neutral-600 text-sm">
