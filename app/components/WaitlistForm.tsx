@@ -50,10 +50,10 @@ export default function WaitlistForm() {
         <div className="w-12 h-12 rounded-full bg-lime-400 flex items-center justify-center text-black text-2xl font-bold">
           ✓
         </div>
-        <p className="text-xl font-bold text-white">You&apos;re in.</p>
+        <p className="text-xl font-bold text-white">You&apos;re on the list ✅</p>
         <p className="text-neutral-400 text-sm text-center max-w-xs">
-          We&apos;ll hit you up when Vitano is ready. Tell a gym buddy — the more
-          the merrier.
+          You&apos;re officially on the Vitano waitlist. We&apos;re building it now — you&apos;ll
+          be first to get access when early access opens. Keep an eye on your inbox.
         </p>
       </div>
     );
