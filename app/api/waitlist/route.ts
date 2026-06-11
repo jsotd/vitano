@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({ email }),
+    body: JSON.stringify({ email, groups: ["190006710943876641"] }),
   });
 
   if (mlRes.ok) {
