@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-interface Macros {
+interface AnalysisResult {
+  items: string[];
   protein: number;
   calories: number;
   carbs: number;
@@ -8,9 +9,13 @@ interface Macros {
 }
 
 const SYSTEM_PROMPT = `You are a nutrition estimator. The user will send you a photo of a meal.
-Return ONLY a JSON object with your best estimate of the meal's nutrition. No explanation, no text, just JSON.
-Format: {"protein": <grams>, "calories": <kcal>, "carbs": <grams>, "fat": <grams>}
-All values must be non-negative integers. Estimate for the full visible portion.`;
+Identify the food items you can see, then estimate the full meal's macros.
+Return ONLY a JSON object — no explanation, no markdown, no extra text.
+Format exactly: {"items": ["food 1", "food 2"], "protein": <grams>, "calories": <kcal>, "carbs": <grams>, "fat": <grams>}
+Rules:
+- "items" must be a non-empty array of short, plain food names (e.g. "chicken breast", "white rice", "olive oil")
+- All macro values must be non-negative integers
+- Estimate for the full visible portion`;
 
 export async function POST(req: NextRequest) {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -36,7 +41,6 @@ export async function POST(req: NextRequest) {
 
   const imageDataUrl = (body as Record<string, string>).image;
 
-  // Strip the data URL prefix to get a clean base64 string + mime type
   const match = imageDataUrl.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
   if (!match) {
     return NextResponse.json({ error: "Invalid image format" }, { status: 400 });
@@ -54,7 +58,7 @@ export async function POST(req: NextRequest) {
       },
       body: JSON.stringify({
         model: "gpt-4o",
-        max_tokens: 100,
+        max_tokens: 200,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           {
@@ -67,7 +71,7 @@ export async function POST(req: NextRequest) {
                   detail: "low",
                 },
               },
-              { type: "text", text: "Estimate the macros for this meal." },
+              { type: "text", text: "Identify the foods and estimate the macros for this meal." },
             ],
           },
         ],
@@ -90,23 +94,30 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Failed to reach OpenAI" }, { status: 502 });
   }
 
-  // Parse the JSON the model returns — strip any accidental markdown fences
   const cleaned = rawContent.replace(/```json|```/g, "").trim();
-  let macros: Macros;
+  let result: AnalysisResult;
   try {
     const parsed = JSON.parse(cleaned) as Record<string, unknown>;
-    macros = {
+    const items = Array.isArray(parsed.items)
+      ? (parsed.items as unknown[])
+          .filter((i) => typeof i === "string" && i.trim().length > 0)
+          .map((i) => (i as string).trim())
+      : [];
+
+    result = {
+      items: items.length > 0 ? items : ["Unknown meal"],
       protein: Math.round(Math.max(0, Number(parsed.protein))),
       calories: Math.round(Math.max(0, Number(parsed.calories))),
       carbs: Math.round(Math.max(0, Number(parsed.carbs))),
       fat: Math.round(Math.max(0, Number(parsed.fat))),
     };
-    if ([macros.protein, macros.calories, macros.carbs, macros.fat].some(isNaN)) {
-      throw new Error("Non-numeric values");
+
+    if ([result.protein, result.calories, result.carbs, result.fat].some(isNaN)) {
+      throw new Error("Non-numeric macro values");
     }
   } catch {
     return NextResponse.json({ error: "Couldn't parse nutrition response" }, { status: 502 });
   }
 
-  return NextResponse.json(macros, { status: 200 });
+  return NextResponse.json(result, { status: 200 });
 }

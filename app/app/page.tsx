@@ -6,6 +6,7 @@ import { useRef, useState, ChangeEvent } from "react";
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface Macros {
+  items: string[];
   protein: number;
   calories: number;
   carbs: number;
@@ -326,6 +327,25 @@ export default function AppPage() {
         {imageUrl && (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={imageUrl} alt="Meal" className="w-full h-44 object-cover rounded-2xl mb-6" />
+        )}
+
+        {/* Detected items */}
+        {macros.items.length > 0 && (
+          <div className="mb-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-500 mb-2.5">
+              Detected
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {macros.items.map((item) => (
+                <span
+                  key={item}
+                  className="px-3 py-1 rounded-full border border-neutral-800 bg-neutral-950 text-neutral-300 text-[13px] leading-relaxed"
+                >
+                  {item}
+                </span>
+              ))}
+            </div>
+          </div>
         )}
 
         {/* Macros card */}
