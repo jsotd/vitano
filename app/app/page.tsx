@@ -110,7 +110,8 @@ export default function AppPage() {
   const [screen, setScreen] = useState<Screen>("scan");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [macros, setMacros] = useState<Macros | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const libraryInputRef = useRef<HTMLInputElement>(null);
 
   function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -120,6 +121,8 @@ export default function AppPage() {
       setImageUrl(ev.target?.result as string);
     };
     reader.readAsDataURL(file);
+    // reset so the same file can be re-selected after clearing
+    e.target.value = "";
   }
 
   async function handleAnalyze() {
@@ -138,7 +141,6 @@ export default function AppPage() {
     setScreen("scan");
     setImageUrl(null);
     setMacros(null);
-    if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   // ── Scan screen ─────────────────────────────────────────────────────────────
@@ -163,9 +165,9 @@ export default function AppPage() {
           Take a photo or upload an image — we&apos;ll estimate your macros instantly.
         </p>
 
-        {/* Image picker */}
+        {/* Image preview — tap to pick from library */}
         <div
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() => libraryInputRef.current?.click()}
           className={`
             relative flex-1 min-h-[280px] rounded-2xl border-2 border-dashed
             flex flex-col items-center justify-center gap-4 cursor-pointer
@@ -186,20 +188,28 @@ export default function AppPage() {
           ) : (
             <>
               <div className="w-16 h-16 rounded-full bg-neutral-900 border border-neutral-800 flex items-center justify-center text-3xl">
-                📷
+                🍽️
               </div>
               <p className="text-neutral-500 text-sm text-center px-6">
-                Tap to take a photo or choose from your library
+                Tap to choose a photo from your library
               </p>
             </>
           )}
         </div>
 
+        {/* Hidden inputs — one forces camera, one lets OS decide (library/files) */}
         <input
-          ref={fileInputRef}
+          ref={cameraInputRef}
           type="file"
           accept="image/*"
           capture="environment"
+          onChange={handleFileChange}
+          className="hidden"
+        />
+        <input
+          ref={libraryInputRef}
+          type="file"
+          accept="image/*"
           onChange={handleFileChange}
           className="hidden"
         />
@@ -214,12 +224,20 @@ export default function AppPage() {
               Analyze meal →
             </button>
           )}
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="w-full py-3.5 rounded-xl border border-neutral-800 text-neutral-400 font-medium text-sm hover:border-neutral-700 hover:text-white transition-colors"
-          >
-            {imageUrl ? "Choose a different photo" : "Choose from library"}
-          </button>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={() => cameraInputRef.current?.click()}
+              className="py-3.5 rounded-xl border border-neutral-800 text-neutral-400 font-medium text-sm hover:border-neutral-700 hover:text-white transition-colors flex items-center justify-center gap-2"
+            >
+              <span>📷</span> Take photo
+            </button>
+            <button
+              onClick={() => libraryInputRef.current?.click()}
+              className="py-3.5 rounded-xl border border-neutral-800 text-neutral-400 font-medium text-sm hover:border-neutral-700 hover:text-white transition-colors flex items-center justify-center gap-2"
+            >
+              <span>🖼️</span> {imageUrl ? "Change photo" : "Choose photo"}
+            </button>
+          </div>
         </div>
       </div>
     );
