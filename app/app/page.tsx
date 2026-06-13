@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useRef, useState, ChangeEvent } from "react";
+import { useRef, useState, ChangeEvent, useEffect } from "react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -13,9 +13,36 @@ interface Macros {
   fat: number;
 }
 
-type Screen = "scan" | "analyzing" | "results" | "saved";
+interface LoggedMeal {
+  id: string;
+  items: string[];
+  protein: number;
+  calories: number;
+  carbs: number;
+  fat: number;
+}
 
-// ── Real AI analysis ──────────────────────────────────────────────────────────
+interface DailyLog {
+  date: string;
+  meals: LoggedMeal[];
+}
+
+type Screen = "init" | "goal-setup" | "dashboard" | "scan" | "analyzing" | "results";
+
+// ── Storage ───────────────────────────────────────────────────────────────────
+
+const GOAL_KEY = "vitano_protein_goal";
+const LOG_KEY = "vitano_daily_log";
+
+function todayString(): string {
+  return new Date().toDateString();
+}
+
+function makeId(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+// ── AI analysis ───────────────────────────────────────────────────────────────
 
 async function analyzeMeal(imageDataUrl: string): Promise<Macros> {
   const res = await fetch("/api/analyze", {
@@ -30,7 +57,7 @@ async function analyzeMeal(imageDataUrl: string): Promise<Macros> {
   return res.json() as Promise<Macros>;
 }
 
-// ── Icons (inline SVG — no emojis) ───────────────────────────────────────────
+// ── Icons ─────────────────────────────────────────────────────────────────────
 
 function IconCamera({ className }: { className?: string }) {
   return (
@@ -65,6 +92,75 @@ function IconCheck({ className, strokeWidth = 2 }: { className?: string; strokeW
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
       <polyline points="20 6 9 17 4 12" />
     </svg>
+  );
+}
+
+function IconX({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  );
+}
+
+function IconPlus({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <line x1="5" y1="12" x2="19" y2="12" />
+    </svg>
+  );
+}
+
+function IconChevronLeft({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="15 18 9 12 15 6" />
+    </svg>
+  );
+}
+
+// ── Protein Ring ──────────────────────────────────────────────────────────────
+
+function ProteinRing({ consumed, goal }: { consumed: number; goal: number }) {
+  const r = 68;
+  const size = 176;
+  const cx = size / 2;
+  const cy = size / 2;
+  const circ = 2 * Math.PI * r;
+  const progress = goal > 0 ? Math.min(consumed / goal, 1) : 0;
+  const offset = circ * (1 - progress);
+  const done = goal > 0 && consumed >= goal;
+
+  return (
+    <div className="relative flex items-center justify-center">
+      <svg
+        width={size}
+        height={size}
+        viewBox={`0 0 ${size} ${size}`}
+        style={{ transform: "rotate(-90deg)" }}
+      >
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke="#1c1c1c" strokeWidth={10} />
+        <circle
+          cx={cx} cy={cy} r={r}
+          fill="none"
+          stroke={done ? "#6ee7b7" : "#9b6bff"}
+          strokeWidth={10}
+          strokeLinecap="round"
+          strokeDasharray={circ}
+          strokeDashoffset={progress > 0 ? offset : circ}
+          style={{ transition: "stroke-dashoffset 0.8s cubic-bezier(0.4,0,0.2,1), stroke 0.4s ease" }}
+        />
+      </svg>
+      <div className="absolute flex flex-col items-center">
+        <span className="text-5xl font-black text-white tabular-nums leading-none">{consumed}</span>
+        <span className="text-[11px] text-neutral-500 mt-1.5 tracking-wide">of {goal}g protein</span>
+        {done && (
+          <span className="text-[11px] text-emerald-400 font-semibold mt-1">Goal hit</span>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -154,13 +250,75 @@ function MacroField({
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function AppPage() {
-  const [screen, setScreen] = useState<Screen>("scan");
+  const [mounted, setMounted] = useState(false);
+  const [screen, setScreen] = useState<Screen>("init");
+  const [proteinGoal, setProteinGoal] = useState(160);
+  const [goalDraft, setGoalDraft] = useState("160");
+  const [dailyLog, setDailyLog] = useState<DailyLog>({ date: todayString(), meals: [] });
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [macros, setMacros] = useState<Macros | null>(null);
   const [adjusting, setAdjusting] = useState(false);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const libraryInputRef = useRef<HTMLInputElement>(null);
+
+  // Load from localStorage once on mount
+  useEffect(() => {
+    const savedGoal = localStorage.getItem(GOAL_KEY);
+    const savedLog = localStorage.getItem(LOG_KEY);
+
+    const goal = savedGoal ? parseInt(savedGoal, 10) : 0;
+    if (goal > 0) {
+      setProteinGoal(goal);
+      setGoalDraft(String(goal));
+    }
+
+    if (savedLog) {
+      try {
+        const log = JSON.parse(savedLog) as DailyLog;
+        if (log.date === todayString()) {
+          setDailyLog(log);
+        }
+        // new day → keep initial empty log, goal persists separately
+      } catch {
+        // corrupted — start fresh
+      }
+    }
+
+    setMounted(true);
+    setScreen(goal > 0 ? "dashboard" : "goal-setup");
+  }, []);
+
+  // Persist goal
+  useEffect(() => {
+    if (!mounted || proteinGoal <= 0) return;
+    localStorage.setItem(GOAL_KEY, String(proteinGoal));
+  }, [proteinGoal, mounted]);
+
+  // Persist daily log
+  useEffect(() => {
+    if (!mounted) return;
+    localStorage.setItem(LOG_KEY, JSON.stringify(dailyLog));
+  }, [dailyLog, mounted]);
+
+  // Running totals
+  const totals = dailyLog.meals.reduce(
+    (acc, m) => ({
+      protein: acc.protein + m.protein,
+      calories: acc.calories + m.calories,
+      carbs: acc.carbs + m.carbs,
+      fat: acc.fat + m.fat,
+    }),
+    { protein: 0, calories: 0, carbs: 0, fat: 0 }
+  );
+
+  // Handlers
+  function saveGoal() {
+    const n = parseInt(goalDraft, 10);
+    if (!n || n <= 0) return;
+    setProteinGoal(n);
+    setScreen("dashboard");
+  }
 
   function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -186,27 +344,219 @@ export default function AppPage() {
     }
   }
 
-  function handleReset() {
-    setScreen("scan");
+  function handleSaveMeal() {
+    if (!macros) return;
+    const meal: LoggedMeal = {
+      id: makeId(),
+      items: macros.items,
+      protein: macros.protein,
+      calories: macros.calories,
+      carbs: macros.carbs,
+      fat: macros.fat,
+    };
+    setDailyLog((prev) => ({ ...prev, meals: [...prev.meals, meal] }));
     setImageUrl(null);
     setMacros(null);
     setAdjusting(false);
-    setAnalyzeError(null);
+    setScreen("dashboard");
   }
 
-  // ── Scan screen ───────────────────────────────────────────────────────────────
+  function deleteMeal(id: string) {
+    setDailyLog((prev) => ({
+      ...prev,
+      meals: prev.meals.filter((m) => m.id !== id),
+    }));
+  }
+
+  // ── Init ──────────────────────────────────────────────────────────────────────
+  if (screen === "init") {
+    return <div className="min-h-screen bg-[#0a0a0a]" />;
+  }
+
+  // ── Goal setup ────────────────────────────────────────────────────────────────
+  if (screen === "goal-setup") {
+    return (
+      <div className="flex flex-col min-h-screen px-6 max-w-md mx-auto w-full">
+        <div className="pt-12 mb-16">
+          <Image
+            src="/vitano_logo_transparent_white.png"
+            alt="Vitano"
+            height={28}
+            width={112}
+            className="object-contain"
+            priority
+          />
+        </div>
+
+        <div className="flex-1 flex flex-col justify-center pb-16">
+          <h1 className="text-[1.75rem] font-black tracking-tight mb-2">
+            Set your protein goal
+          </h1>
+          <p className="text-neutral-500 text-sm leading-relaxed mb-10">
+            How many grams of protein do you aim to hit each day? You can change this anytime.
+          </p>
+
+          <label className="text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-500 block mb-2">
+            Daily protein goal
+          </label>
+          <div className="relative mb-8">
+            <input
+              type="number"
+              value={goalDraft}
+              onChange={(e) => setGoalDraft(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && saveGoal()}
+              className="w-full px-4 py-4 bg-neutral-950 border border-neutral-800 rounded-xl text-white text-2xl font-bold focus:outline-none focus:border-[#9b6bff] transition-colors tabular-nums"
+              placeholder="160"
+              min={1}
+              max={500}
+              autoFocus
+            />
+            <span className="absolute right-4 top-1/2 -translate-y-1/2 text-neutral-500 text-sm pointer-events-none">
+              g / day
+            </span>
+          </div>
+
+          <button
+            onClick={saveGoal}
+            className="w-full py-4 rounded-xl bg-[#6d3fd4] text-white font-semibold text-[15px] hover:bg-[#9b6bff] active:scale-[0.98] transition-all tracking-wide"
+          >
+            Set goal
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Dashboard ─────────────────────────────────────────────────────────────────
+  if (screen === "dashboard") {
+    const dateLabel = new Date().toLocaleDateString("en-US", {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+    });
+
+    return (
+      <div className="flex flex-col min-h-screen max-w-md mx-auto w-full">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 pt-10 pb-4">
+          <Image
+            src="/vitano_logo_transparent_white.png"
+            alt="Vitano"
+            height={28}
+            width={112}
+            className="object-contain"
+            priority
+          />
+          <button
+            onClick={() => { setGoalDraft(String(proteinGoal)); setScreen("goal-setup"); }}
+            className="text-neutral-600 hover:text-white transition-colors p-1"
+            aria-label="Edit goal"
+          >
+            <IconPencil className="w-4 h-4" />
+          </button>
+        </div>
+
+        <p className="px-5 text-[11px] font-medium uppercase tracking-[0.16em] text-neutral-700 mb-6">
+          {dateLabel}
+        </p>
+
+        {/* Protein ring */}
+        <div className="flex justify-center mb-6">
+          <ProteinRing consumed={totals.protein} goal={proteinGoal} />
+        </div>
+
+        {/* Secondary macros */}
+        <div className="mx-5 grid grid-cols-3 divide-x divide-neutral-800/60 border border-neutral-800/60 rounded-2xl bg-neutral-950 mb-7">
+          {([
+            { label: "Calories", value: totals.calories, unit: "kcal" },
+            { label: "Carbs", value: totals.carbs, unit: "g" },
+            { label: "Fat", value: totals.fat, unit: "g" },
+          ] as const).map((m) => (
+            <div key={m.label} className="flex flex-col items-center py-4 gap-0.5">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-500">
+                {m.label}
+              </span>
+              <span className="text-xl font-bold text-white tabular-nums">{m.value}</span>
+              <span className="text-neutral-600 text-[10px]">{m.unit}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Meal list */}
+        <div className="flex-1 px-5 pb-32">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-500">
+              Today&apos;s meals
+            </h2>
+            <span className="text-[11px] text-neutral-700">
+              {dailyLog.meals.length} logged
+            </span>
+          </div>
+
+          {dailyLog.meals.length === 0 ? (
+            <div className="text-center py-10">
+              <p className="text-neutral-600 text-sm">No meals logged yet.</p>
+              <p className="text-neutral-700 text-xs mt-1">Tap below to scan your first meal.</p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {dailyLog.meals.map((meal) => (
+                <div
+                  key={meal.id}
+                  className="flex items-center gap-3 px-4 py-3.5 bg-neutral-950 border border-neutral-800/60 rounded-xl"
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white text-sm font-medium truncate leading-snug">
+                      {meal.items.join(", ")}
+                    </p>
+                    <p className="text-[#9b6bff] text-xs mt-0.5 font-semibold">
+                      {meal.protein}g protein
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => deleteMeal(meal.id)}
+                    className="flex-shrink-0 text-neutral-700 hover:text-neutral-400 transition-colors p-1 -mr-1"
+                    aria-label="Remove meal"
+                  >
+                    <IconX className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Fixed bottom CTA */}
+        <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md px-5 pb-8 pt-6 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/90 to-transparent pointer-events-none">
+          <button
+            onClick={() => {
+              setImageUrl(null);
+              setMacros(null);
+              setAnalyzeError(null);
+              setScreen("scan");
+            }}
+            className="w-full py-4 rounded-xl bg-[#6d3fd4] text-white font-semibold text-[15px] hover:bg-[#9b6bff] active:scale-[0.98] transition-all tracking-wide flex items-center justify-center gap-2 pointer-events-auto"
+          >
+            <IconPlus className="w-5 h-5" />
+            Scan a meal
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Scan ──────────────────────────────────────────────────────────────────────
   if (screen === "scan") {
     return (
       <div className="flex flex-col min-h-screen px-5 pt-10 pb-8 max-w-md mx-auto w-full">
         <div className="flex items-center justify-between mb-10">
-          <Image
-            src="/vitano_logo_transparent_white.png"
-            alt="Vitano"
-            height={32}
-            width={128}
-            className="object-contain"
-            priority
-          />
+          <button
+            onClick={() => setScreen("dashboard")}
+            className="text-neutral-500 hover:text-white transition-colors flex items-center gap-1.5 text-sm"
+          >
+            <IconChevronLeft className="w-4 h-4" />
+            Today
+          </button>
           <span className="text-[11px] text-neutral-600 font-medium tracking-wide uppercase">beta</span>
         </div>
 
@@ -215,26 +565,17 @@ export default function AppPage() {
           Take a photo or choose from your library — we&apos;ll estimate your macros in seconds.
         </p>
 
-        {/* Preview area */}
         <div
           onClick={() => libraryInputRef.current?.click()}
           className={`
-            relative flex-1 min-h-[300px] rounded-2xl border border-dashed
-            flex flex-col items-center justify-center gap-4 cursor-pointer
-            transition-colors overflow-hidden
-            ${imageUrl
-              ? "border-[#9b6bff]/50 bg-neutral-950"
-              : "border-neutral-800 bg-neutral-950 hover:border-neutral-700"
-            }
+            relative flex-1 min-h-[300px] rounded-2xl border border-dashed cursor-pointer
+            flex flex-col items-center justify-center gap-4 transition-colors overflow-hidden
+            ${imageUrl ? "border-[#9b6bff]/50 bg-neutral-950" : "border-neutral-800 bg-neutral-950 hover:border-neutral-700"}
           `}
         >
           {imageUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={imageUrl}
-              alt="Meal preview"
-              className="w-full h-full object-cover absolute inset-0 rounded-2xl"
-            />
+            <img src={imageUrl} alt="Meal preview" className="w-full h-full object-cover absolute inset-0 rounded-2xl" />
           ) : (
             <div className="flex flex-col items-center gap-3">
               <div className="w-14 h-14 rounded-full bg-neutral-900 border border-neutral-800 flex items-center justify-center">
@@ -252,7 +593,7 @@ export default function AppPage() {
 
         <div className="mt-5 flex flex-col gap-3">
           {analyzeError && (
-            <p className="text-red-400 text-sm text-center py-2 px-4 bg-red-400/10 rounded-xl border border-red-400/20">
+            <p className="text-red-400 text-sm text-center py-2.5 px-4 bg-red-400/10 rounded-xl border border-red-400/20">
               {analyzeError}
             </p>
           )}
@@ -285,7 +626,7 @@ export default function AppPage() {
     );
   }
 
-  // ── Analyzing screen ──────────────────────────────────────────────────────────
+  // ── Analyzing ─────────────────────────────────────────────────────────────────
   if (screen === "analyzing") {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen gap-7 px-5">
@@ -305,31 +646,26 @@ export default function AppPage() {
     );
   }
 
-  // ── Results screen ────────────────────────────────────────────────────────────
+  // ── Results ───────────────────────────────────────────────────────────────────
   if (screen === "results" && macros) {
     return (
       <div className="flex flex-col min-h-screen px-5 pt-10 pb-8 max-w-md mx-auto w-full">
-        {/* Header */}
         <div className="flex items-center justify-between mb-7">
           <button
-            onClick={handleReset}
+            onClick={() => setScreen("scan")}
             className="text-neutral-500 hover:text-white transition-colors text-sm flex items-center gap-1.5"
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-              <polyline points="15 18 9 12 15 6" />
-            </svg>
+            <IconChevronLeft className="w-4 h-4" />
             Scan again
           </button>
           <span className="text-[11px] text-neutral-600 font-medium tracking-wide uppercase">beta</span>
         </div>
 
-        {/* Meal thumbnail */}
         {imageUrl && (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={imageUrl} alt="Meal" className="w-full h-44 object-cover rounded-2xl mb-6" />
         )}
 
-        {/* Detected items */}
         {macros.items.length > 0 && (
           <div className="mb-4">
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-500 mb-2.5">
@@ -339,7 +675,7 @@ export default function AppPage() {
               {macros.items.map((item) => (
                 <span
                   key={item}
-                  className="px-3 py-1 rounded-full border border-neutral-800 bg-neutral-950 text-neutral-300 text-[13px] leading-relaxed"
+                  className="px-3 py-1 rounded-full border border-neutral-800 bg-neutral-950 text-neutral-300 text-[13px]"
                 >
                   {item}
                 </span>
@@ -348,46 +684,31 @@ export default function AppPage() {
           </div>
         )}
 
-        {/* Macros card */}
         <div className="bg-neutral-950 border border-neutral-800/80 rounded-2xl overflow-hidden mb-3">
           <MacroField
-            label="Protein"
-            value={macros.protein}
-            unit="grams"
-            primary
-            adjusting={adjusting}
-            onActivateAdjust={() => setAdjusting(true)}
+            label="Protein" value={macros.protein} unit="grams" primary
+            adjusting={adjusting} onActivateAdjust={() => setAdjusting(true)}
             onChange={(v) => setMacros({ ...macros, protein: v })}
           />
           <div className="grid grid-cols-3 divide-x divide-neutral-800/60 border-t border-neutral-800/60">
             <MacroField
-              label="Calories"
-              value={macros.calories}
-              unit="kcal"
-              adjusting={adjusting}
-              onActivateAdjust={() => setAdjusting(true)}
+              label="Calories" value={macros.calories} unit="kcal"
+              adjusting={adjusting} onActivateAdjust={() => setAdjusting(true)}
               onChange={(v) => setMacros({ ...macros, calories: v })}
             />
             <MacroField
-              label="Carbs"
-              value={macros.carbs}
-              unit="g"
-              adjusting={adjusting}
-              onActivateAdjust={() => setAdjusting(true)}
+              label="Carbs" value={macros.carbs} unit="g"
+              adjusting={adjusting} onActivateAdjust={() => setAdjusting(true)}
               onChange={(v) => setMacros({ ...macros, carbs: v })}
             />
             <MacroField
-              label="Fat"
-              value={macros.fat}
-              unit="g"
-              adjusting={adjusting}
-              onActivateAdjust={() => setAdjusting(true)}
+              label="Fat" value={macros.fat} unit="g"
+              adjusting={adjusting} onActivateAdjust={() => setAdjusting(true)}
               onChange={(v) => setMacros({ ...macros, fat: v })}
             />
           </div>
         </div>
 
-        {/* AI note + Adjust / Done toggle */}
         <div className="flex items-center justify-between px-1 mb-7">
           <p className="text-neutral-600 text-xs">AI estimate</p>
           {adjusting ? (
@@ -409,36 +730,12 @@ export default function AppPage() {
           )}
         </div>
 
-        {/* Save */}
         <button
-          onClick={() => setScreen("saved")}
+          onClick={handleSaveMeal}
           disabled={adjusting}
           className="w-full py-4 rounded-xl bg-[#6d3fd4] text-white font-semibold text-[15px] hover:bg-[#9b6bff] active:scale-[0.98] transition-all tracking-wide mt-auto disabled:opacity-40 disabled:cursor-not-allowed"
         >
           Save to today
-        </button>
-      </div>
-    );
-  }
-
-  // ── Saved screen ──────────────────────────────────────────────────────────────
-  if (screen === "saved") {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen gap-5 px-5 text-center">
-        <div className="w-14 h-14 rounded-full bg-[#9b6bff] flex items-center justify-center">
-          <IconCheck className="w-6 h-6 text-white" strokeWidth={2.5} />
-        </div>
-        <div>
-          <p className="text-white font-bold text-xl tracking-tight">Saved to today</p>
-          <p className="text-neutral-500 text-sm mt-1.5">
-            {macros?.protein}g protein logged.
-          </p>
-        </div>
-        <button
-          onClick={handleReset}
-          className="mt-3 px-6 py-3 rounded-xl border border-neutral-800 text-neutral-400 font-medium text-sm hover:border-neutral-700 hover:text-white transition-colors"
-        >
-          Scan another meal
         </button>
       </div>
     );
