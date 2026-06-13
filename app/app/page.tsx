@@ -196,6 +196,63 @@ function ProteinRing({ consumed, goal }: { consumed: number; goal: number }) {
   );
 }
 
+// ── Macro Ring ────────────────────────────────────────────────────────────────
+
+function MacroRing({
+  label,
+  value,
+  unit,
+  color,
+  goal,
+}: {
+  label: string;
+  value: number;
+  unit: string;
+  color: string;
+  goal?: number;
+}) {
+  const r = 32;
+  const size = 84;
+  const cx = size / 2;
+  const cy = size / 2;
+  const circ = 2 * Math.PI * r;
+  const hasGoal = typeof goal === "number" && goal > 0;
+  const progress = hasGoal ? Math.min(value / goal, 1) : 0;
+  const offset = circ * (1 - progress);
+
+  return (
+    <div className="flex flex-col items-center gap-1.5">
+      <div className="relative flex items-center justify-center">
+        <svg
+          width={size}
+          height={size}
+          viewBox={`0 0 ${size} ${size}`}
+          style={{ transform: "rotate(-90deg)" }}
+        >
+          <circle cx={cx} cy={cy} r={r} fill="none" stroke="#1c1c1c" strokeWidth={7} />
+          {hasGoal && (
+            <circle
+              cx={cx} cy={cy} r={r}
+              fill="none"
+              stroke={color}
+              strokeWidth={7}
+              strokeLinecap="round"
+              strokeDasharray={circ}
+              strokeDashoffset={progress > 0 ? offset : circ}
+              style={{ transition: "stroke-dashoffset 0.8s cubic-bezier(0.4,0,0.2,1)" }}
+            />
+          )}
+        </svg>
+        <div className="absolute flex flex-col items-center">
+          <span className="text-[17px] font-bold tabular-nums leading-none" style={{ color }}>{value}</span>
+          <span className="text-[9px] text-neutral-600 mt-0.5">{unit}</span>
+        </div>
+      </div>
+      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-500">{label}</span>
+    </div>
+  );
+}
+
 // ── MacroField ────────────────────────────────────────────────────────────────
 
 function MacroField({
@@ -499,20 +556,10 @@ export default function AppPage() {
         </div>
 
         {/* Secondary macros */}
-        <div className="mx-5 grid grid-cols-3 divide-x divide-neutral-800/60 border border-neutral-800/60 rounded-2xl bg-neutral-950 mb-7">
-          {([
-            { label: "Calories", value: totals.calories, unit: "kcal" },
-            { label: "Carbs", value: totals.carbs, unit: "g" },
-            { label: "Fat", value: totals.fat, unit: "g" },
-          ] as const).map((m) => (
-            <div key={m.label} className="flex flex-col items-center py-4 gap-0.5">
-              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-500">
-                {m.label}
-              </span>
-              <span className="text-xl font-bold text-white tabular-nums">{m.value}</span>
-              <span className="text-neutral-600 text-[10px]">{m.unit}</span>
-            </div>
-          ))}
+        <div className="mx-5 flex items-center justify-around mb-7">
+          <MacroRing label="Calories" value={totals.calories} unit="kcal" color="#f5a623" />
+          <MacroRing label="Carbs" value={totals.carbs} unit="g" color="#3ec9c0" />
+          <MacroRing label="Fat" value={totals.fat} unit="g" color="#f2779a" />
         </div>
 
         {/* Meal list */}
