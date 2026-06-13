@@ -432,6 +432,7 @@ export default function AppPage() {
   const [macros, setMacros] = useState<Macros | null>(null);
   const [adjusting, setAdjusting] = useState(false);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
+  const [confirmReset, setConfirmReset] = useState(false);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const libraryInputRef = useRef<HTMLInputElement>(null);
 
@@ -579,6 +580,11 @@ export default function AppPage() {
       ...prev,
       meals: prev.meals.filter((m) => m.id !== id),
     }));
+  }
+
+  function resetDay() {
+    setDailyLog({ date: todayString(), meals: [] });
+    setConfirmReset(false);
   }
 
   // ── Init ──────────────────────────────────────────────────────────────────────
@@ -729,6 +735,7 @@ export default function AppPage() {
               setCalDraft(caloriesGoal > 0 ? String(caloriesGoal) : "");
               setCarbsDraft(carbsGoal > 0 ? String(carbsGoal) : "");
               setFatDraft(fatGoal > 0 ? String(fatGoal) : "");
+              setConfirmReset(false);
               setScreen("settings");
             }}
             className="text-neutral-600 hover:text-white transition-colors p-1"
@@ -756,13 +763,47 @@ export default function AppPage() {
 
         {/* Meal list */}
         <div className="flex-1 px-5 pb-32">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-500">
-              Today&apos;s meals
-            </h2>
-            <span className="text-[11px] text-neutral-700">
-              {dailyLog.meals.length} logged
-            </span>
+          <div className="flex items-center justify-between mb-3 min-h-[20px]">
+            {confirmReset ? (
+              <>
+                <span className="text-[11px] text-neutral-400">
+                  Reset today&apos;s progress?
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setConfirmReset(false)}
+                    className="text-[11px] text-neutral-500 hover:text-white transition-colors px-1"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={resetDay}
+                    className="text-[11px] font-semibold text-red-400 hover:text-red-300 border border-red-400/30 hover:border-red-400/60 rounded-lg px-2.5 py-1 transition-colors"
+                  >
+                    Reset
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h2 className="text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-500">
+                  Today&apos;s meals
+                </h2>
+                <div className="flex items-center gap-3">
+                  <span className="text-[11px] text-neutral-700">
+                    {dailyLog.meals.length} logged
+                  </span>
+                  {dailyLog.meals.length > 0 && (
+                    <button
+                      onClick={() => setConfirmReset(true)}
+                      className="text-[10px] text-neutral-700 hover:text-neutral-400 transition-colors tracking-wide"
+                    >
+                      start fresh
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
           </div>
 
           {dailyLog.meals.length === 0 ? (
@@ -805,6 +846,7 @@ export default function AppPage() {
               setImageUrl(null);
               setMacros(null);
               setAnalyzeError(null);
+              setConfirmReset(false);
               setScreen("scan");
             }}
             className="w-full py-4 rounded-xl bg-[#6d3fd4] text-white font-semibold text-[15px] hover:bg-[#9b6bff] active:scale-[0.98] transition-all tracking-wide flex items-center justify-center gap-2 pointer-events-auto"
