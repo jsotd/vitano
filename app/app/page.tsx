@@ -1,7 +1,11 @@
 "use client";
 
+export const dynamic = "force-dynamic";
+
 import Image from "next/image";
-import { useRef, useState, ChangeEvent, useEffect } from "react";
+import { useRef, useState, ChangeEvent, useEffect, useCallback } from "react";
+import { supabase } from "@/lib/supabase";
+import type { User } from "@supabase/supabase-js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -20,7 +24,7 @@ interface LoggedMeal {
   calories: number;
   carbs: number;
   fat: number;
-  thumbnail?: string; // compressed data URL, ~200px JPEG
+  thumbnail?: string;
 }
 
 interface DailyLog {
@@ -28,26 +32,49 @@ interface DailyLog {
   meals: LoggedMeal[];
 }
 
-type Screen = "init" | "settings" | "dashboard" | "scan" | "analyzing" | "results";
+interface GoalsRow {
+  protein_goal: number;
+  calories_goal: number;
+  carbs_goal: number;
+  fat_goal: number;
+}
 
-// ── Storage ───────────────────────────────────────────────────────────────────
+interface MealRow {
+  id: string;
+  items: string[];
+  protein: number;
+  calories: number;
+  carbs: number;
+  fat: number;
+  thumbnail: string | null;
+}
 
-const GOAL_KEY = "vitano_protein_goal";
-const LOG_KEY = "vitano_daily_log";
-const CAL_GOAL_KEY = "vitano_calories_goal";
-const CARBS_GOAL_KEY = "vitano_carbs_goal";
-const FAT_GOAL_KEY = "vitano_fat_goal";
+type Screen = "init" | "auth" | "settings" | "dashboard" | "scan" | "analyzing" | "results";
 
-function todayString(): string {
-  return new Date().toDateString();
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function todayISO(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function makeId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+function rowToMeal(row: MealRow): LoggedMeal {
+  return {
+    id: row.id,
+    items: row.items,
+    protein: row.protein,
+    calories: row.calories,
+    carbs: row.carbs,
+    fat: row.fat,
+    thumbnail: row.thumbnail ?? undefined,
+  };
+}
+
 // ── Image compression ─────────────────────────────────────────────────────────
-// Resizes to max 1024px and converts to JPEG — fixes HEIC and oversized photos.
 
 function compressImage(dataUrl: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -77,7 +104,6 @@ function compressImage(dataUrl: string): Promise<string> {
   });
 }
 
-// Thumbnail: max 200px, 0.6 quality — keeps localStorage footprint small (~5–15 KB each).
 function makeThumbnail(dataUrl: string): Promise<string> {
   return new Promise((resolve) => {
     const img = document.createElement("img");
@@ -184,6 +210,19 @@ function IconChevronLeft({ className }: { className?: string }) {
   );
 }
 
+// ── Google icon ───────────────────────────────────────────────────────────────
+
+function IconGoogle({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none">
+      <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
+      <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
+      <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05" />
+      <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
+    </svg>
+  );
+}
+
 // ── Protein Ring ──────────────────────────────────────────────────────────────
 
 function ProteinRing({ consumed, goal }: { consumed: number; goal: number }) {
@@ -230,7 +269,6 @@ function ProteinRing({ consumed, goal }: { consumed: number; goal: number }) {
 }
 
 // ── Macro Ring ────────────────────────────────────────────────────────────────
-// goal=0 → solid colored ring (no progress), goal>0 → grey track + colored arc
 
 function MacroRing({
   label,
@@ -442,12 +480,18 @@ function GoalInput({
 export default function AppPage() {
   const [mounted, setMounted] = useState(false);
   const [screen, setScreen] = useState<Screen>("init");
+  const [user, setUser] = useState<User | null>(null);
 
-  // Protein goal — 0 means not yet set (first-time user)
+  // Auth
+  const [authMode, setAuthMode] = useState<"login" | "signup">("login");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
+
+  // Goals — 0 means not set
   const [proteinGoal, setProteinGoal] = useState(0);
   const [goalDraft, setGoalDraft] = useState("");
-
-  // Optional macro goals — 0 means no goal
   const [caloriesGoal, setCaloriesGoal] = useState(0);
   const [carbsGoal, setCarbsGoal] = useState(0);
   const [fatGoal, setFatGoal] = useState(0);
@@ -455,7 +499,7 @@ export default function AppPage() {
   const [carbsDraft, setCarbsDraft] = useState("");
   const [fatDraft, setFatDraft] = useState("");
 
-  const [dailyLog, setDailyLog] = useState<DailyLog>({ date: todayString(), meals: [] });
+  const [dailyLog, setDailyLog] = useState<DailyLog>({ date: todayISO(), meals: [] });
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [macros, setMacros] = useState<Macros | null>(null);
   const [adjusting, setAdjusting] = useState(false);
@@ -464,73 +508,76 @@ export default function AppPage() {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const libraryInputRef = useRef<HTMLInputElement>(null);
 
-  // Load all goals and daily log from localStorage on mount
-  useEffect(() => {
-    const savedGoal   = localStorage.getItem(GOAL_KEY);
-    const savedCal    = localStorage.getItem(CAL_GOAL_KEY);
-    const savedCarbs  = localStorage.getItem(CARBS_GOAL_KEY);
-    const savedFat    = localStorage.getItem(FAT_GOAL_KEY);
-    const savedLog    = localStorage.getItem(LOG_KEY);
+  // Loads goals + today's meals from Supabase, sets state, returns protein goal
+  const loadAndApplyUserData = useCallback(async (userId: string): Promise<number> => {
+    const { data: goalsRow } = await supabase
+      .from("user_goals")
+      .select("protein_goal, calories_goal, carbs_goal, fat_goal")
+      .eq("user_id", userId)
+      .maybeSingle();
 
-    const goal = savedGoal ? parseInt(savedGoal, 10) : 0;
-    if (goal > 0) {
-      setProteinGoal(goal);
-      setGoalDraft(String(goal));
+    const gr = goalsRow as GoalsRow | null;
+    const pg = gr?.protein_goal ?? 0;
+    const cg = gr?.calories_goal ?? 0;
+    const cbg = gr?.carbs_goal ?? 0;
+    const fg = gr?.fat_goal ?? 0;
+
+    if (pg > 0) { setProteinGoal(pg); setGoalDraft(String(pg)); }
+    if (cg > 0) { setCaloriesGoal(cg); setCalDraft(String(cg)); }
+    if (cbg > 0) { setCarbsGoal(cbg); setCarbsDraft(String(cbg)); }
+    if (fg > 0) { setFatGoal(fg); setFatDraft(String(fg)); }
+
+    const { data: mealsRows } = await supabase
+      .from("meal_logs")
+      .select("id, items, protein, calories, carbs, fat, thumbnail")
+      .eq("user_id", userId)
+      .eq("logged_date", todayISO())
+      .order("created_at");
+
+    if (mealsRows?.length) {
+      setDailyLog({ date: todayISO(), meals: (mealsRows as MealRow[]).map(rowToMeal) });
     }
 
-    const cal = savedCal ? parseInt(savedCal, 10) : 0;
-    if (cal > 0) { setCaloriesGoal(cal); setCalDraft(String(cal)); }
+    return pg;
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-    const carbs = savedCarbs ? parseInt(savedCarbs, 10) : 0;
-    if (carbs > 0) { setCarbsGoal(carbs); setCarbsDraft(String(carbs)); }
+  // On mount: check session + listen for auth changes
+  useEffect(() => {
+    let cancelled = false;
 
-    const fat = savedFat ? parseInt(savedFat, 10) : 0;
-    if (fat > 0) { setFatGoal(fat); setFatDraft(String(fat)); }
-
-    if (savedLog) {
-      try {
-        const log = JSON.parse(savedLog) as DailyLog;
-        if (log.date === todayString()) setDailyLog(log);
-        // new day → keep empty log; goal persists separately
-      } catch {
-        // corrupted — start fresh
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (cancelled) return;
+      if (!session?.user) {
+        setMounted(true);
+        setScreen("auth");
+        return;
       }
-    }
+      setUser(session.user);
+      const pg = await loadAndApplyUserData(session.user.id);
+      if (!cancelled) {
+        setMounted(true);
+        setScreen(pg > 0 ? "dashboard" : "settings");
+      }
+    }).catch(console.error);
 
-    setMounted(true);
-    setScreen(goal > 0 ? "dashboard" : "settings");
-  }, []);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (!cancelled && event === "SIGNED_OUT") {
+        setUser(null);
+        setProteinGoal(0); setGoalDraft("");
+        setCaloriesGoal(0); setCalDraft("");
+        setCarbsGoal(0); setCarbsDraft("");
+        setFatGoal(0); setFatDraft("");
+        setDailyLog({ date: todayISO(), meals: [] });
+        setMounted(true);
+        setScreen("auth");
+      }
+    });
 
-  // Persist protein goal
-  useEffect(() => {
-    if (!mounted || proteinGoal <= 0) return;
-    localStorage.setItem(GOAL_KEY, String(proteinGoal));
-  }, [proteinGoal, mounted]);
-
-  // Persist optional goals
-  useEffect(() => {
-    if (!mounted) return;
-    if (caloriesGoal > 0) localStorage.setItem(CAL_GOAL_KEY, String(caloriesGoal));
-    else localStorage.removeItem(CAL_GOAL_KEY);
-  }, [caloriesGoal, mounted]);
-
-  useEffect(() => {
-    if (!mounted) return;
-    if (carbsGoal > 0) localStorage.setItem(CARBS_GOAL_KEY, String(carbsGoal));
-    else localStorage.removeItem(CARBS_GOAL_KEY);
-  }, [carbsGoal, mounted]);
-
-  useEffect(() => {
-    if (!mounted) return;
-    if (fatGoal > 0) localStorage.setItem(FAT_GOAL_KEY, String(fatGoal));
-    else localStorage.removeItem(FAT_GOAL_KEY);
-  }, [fatGoal, mounted]);
-
-  // Persist daily log
-  useEffect(() => {
-    if (!mounted) return;
-    localStorage.setItem(LOG_KEY, JSON.stringify(dailyLog));
-  }, [dailyLog, mounted]);
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
+  }, [loadAndApplyUserData]);
 
   // Running totals
   const totals = dailyLog.meals.reduce(
@@ -543,23 +590,101 @@ export default function AppPage() {
     { protein: 0, calories: 0, carbs: 0, fat: 0 }
   );
 
-  // Save all goals and navigate to dashboard
-  function saveSettings() {
+  // ── Auth handlers ─────────────────────────────────────────────────────────────
+
+  async function handleAuth() {
+    if (authLoading) return;
+    setAuthError(null);
+    setAuthLoading(true);
+
+    try {
+      if (authMode === "signup") {
+        const { data, error } = await supabase.auth.signUp({
+          email: authEmail.trim(),
+          password: authPassword,
+        });
+        if (error) throw error;
+
+        if (data.session && data.user) {
+          setUser(data.user);
+          setMounted(true);
+          setScreen("settings");
+        } else {
+          // Email confirmation required
+          setAuthError("Check your inbox for a confirmation link, then log in.");
+          setAuthMode("login");
+          setAuthPassword("");
+        }
+      } else {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: authEmail.trim(),
+          password: authPassword,
+        });
+        if (error) throw error;
+
+        setUser(data.user);
+        const pg = await loadAndApplyUserData(data.user.id);
+        setMounted(true);
+        setScreen(pg > 0 ? "dashboard" : "settings");
+      }
+    } catch (err) {
+      setAuthError((err as { message?: string }).message ?? "Something went wrong");
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  async function handleGoogleAuth() {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: `${window.location.origin}/app` },
+    });
+    if (error) setAuthError(error.message);
+  }
+
+  async function handleLogout() {
+    await supabase.auth.signOut();
+    // onAuthStateChange SIGNED_OUT handles state reset
+  }
+
+  // ── Settings handler ──────────────────────────────────────────────────────────
+
+  async function saveSettings() {
     const n = parseInt(goalDraft, 10);
     if (!n || n <= 0) return;
-    setProteinGoal(n);
 
     const cal = parseInt(calDraft, 10);
-    setCaloriesGoal(!isNaN(cal) && cal > 0 ? cal : 0);
-
     const carbs = parseInt(carbsDraft, 10);
-    setCarbsGoal(!isNaN(carbs) && carbs > 0 ? carbs : 0);
-
     const fat = parseInt(fatDraft, 10);
-    setFatGoal(!isNaN(fat) && fat > 0 ? fat : 0);
+
+    const cg = !isNaN(cal) && cal > 0 ? cal : 0;
+    const cbg = !isNaN(carbs) && carbs > 0 ? carbs : 0;
+    const fg = !isNaN(fat) && fat > 0 ? fat : 0;
+
+    setProteinGoal(n);
+    setCaloriesGoal(cg);
+    setCarbsGoal(cbg);
+    setFatGoal(fg);
+
+    if (user) {
+      const { error } = await supabase.from("user_goals").upsert(
+        {
+          user_id: user.id,
+          protein_goal: n,
+          calories_goal: cg,
+          carbs_goal: cbg,
+          fat_goal: fg,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "user_id" }
+      );
+      if (error) console.error("[settings] upsert failed:", error);
+    }
 
     setScreen("dashboard");
   }
+
+  // ── Scan handlers ─────────────────────────────────────────────────────────────
 
   function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -614,11 +739,30 @@ export default function AppPage() {
       ...(thumbnail ? { thumbnail } : {}),
     };
     console.log("[save] meal saved, hasThumbnail:", !!meal.thumbnail, "protein:", meal.protein);
+
+    // Optimistic UI update
     setDailyLog((prev) => ({ ...prev, meals: [...prev.meals, meal] }));
     setImageUrl(null);
     setMacros(null);
     setAdjusting(false);
     setScreen("dashboard");
+
+    // Sync to Supabase in background
+    if (user) {
+      supabase.from("meal_logs").insert({
+        id: meal.id,
+        user_id: user.id,
+        logged_date: todayISO(),
+        items: meal.items,
+        protein: meal.protein,
+        calories: meal.calories,
+        carbs: meal.carbs,
+        fat: meal.fat,
+        thumbnail: meal.thumbnail ?? null,
+      }).then(({ error }) => {
+        if (error) console.error("[save] Supabase insert failed:", error);
+      });
+    }
   }
 
   function deleteMeal(id: string) {
@@ -626,16 +770,131 @@ export default function AppPage() {
       ...prev,
       meals: prev.meals.filter((m) => m.id !== id),
     }));
+
+    if (user) {
+      supabase.from("meal_logs").delete()
+        .eq("id", id).eq("user_id", user.id)
+        .then(({ error }) => {
+          if (error) console.error("[delete] Supabase delete failed:", error);
+        });
+    }
   }
 
   function resetDay() {
-    setDailyLog({ date: todayString(), meals: [] });
+    const today = todayISO();
+    setDailyLog({ date: today, meals: [] });
     setConfirmReset(false);
+
+    if (user) {
+      supabase.from("meal_logs").delete()
+        .eq("user_id", user.id).eq("logged_date", today)
+        .then(({ error }) => {
+          if (error) console.error("[reset] Supabase delete failed:", error);
+        });
+    }
   }
 
   // ── Init ──────────────────────────────────────────────────────────────────────
   if (screen === "init") {
     return <div className="min-h-screen bg-[#0a0a0a]" />;
+  }
+
+  // ── Auth ──────────────────────────────────────────────────────────────────────
+  if (screen === "auth") {
+    const canSubmit = authEmail.trim().length > 0 && authPassword.length >= 6;
+
+    return (
+      <div className="flex flex-col min-h-screen px-6 max-w-md mx-auto w-full">
+        {/* Logo */}
+        <div className="flex justify-center pt-16 pb-10">
+          <Image
+            src="/vitano_logo_transparent_white.png"
+            alt="Vitano"
+            height={28}
+            width={112}
+            className="object-contain"
+            priority
+          />
+        </div>
+
+        {/* Mode toggle */}
+        <div className="flex bg-neutral-900 rounded-xl p-1 mb-7 border border-neutral-800">
+          <button
+            onClick={() => { setAuthMode("login"); setAuthError(null); }}
+            className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all ${
+              authMode === "login"
+                ? "bg-[#6d3fd4] text-white"
+                : "text-neutral-500 hover:text-neutral-300"
+            }`}
+          >
+            Log in
+          </button>
+          <button
+            onClick={() => { setAuthMode("signup"); setAuthError(null); }}
+            className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all ${
+              authMode === "signup"
+                ? "bg-[#6d3fd4] text-white"
+                : "text-neutral-500 hover:text-neutral-300"
+            }`}
+          >
+            Create account
+          </button>
+        </div>
+
+        {/* Form */}
+        <div className="flex flex-col gap-3 mb-4">
+          <input
+            type="email"
+            value={authEmail}
+            onChange={(e) => setAuthEmail(e.target.value)}
+            placeholder="Email"
+            autoComplete="email"
+            className="w-full px-4 py-3.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white text-[15px] focus:outline-none focus:border-[#9b6bff] transition-colors placeholder:text-neutral-700"
+          />
+          <input
+            type="password"
+            value={authPassword}
+            onChange={(e) => setAuthPassword(e.target.value)}
+            placeholder="Password (min 6 characters)"
+            autoComplete={authMode === "login" ? "current-password" : "new-password"}
+            onKeyDown={(e) => e.key === "Enter" && canSubmit && handleAuth()}
+            className="w-full px-4 py-3.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white text-[15px] focus:outline-none focus:border-[#9b6bff] transition-colors placeholder:text-neutral-700"
+          />
+        </div>
+
+        {/* Error / info message */}
+        {authError && (
+          <p className="text-sm text-neutral-400 text-center mb-4 px-3 py-3 bg-neutral-900/70 rounded-xl border border-neutral-800 leading-relaxed">
+            {authError}
+          </p>
+        )}
+
+        {/* Submit */}
+        <button
+          onClick={handleAuth}
+          disabled={authLoading || !canSubmit}
+          className="w-full py-4 rounded-xl bg-[#6d3fd4] text-white font-semibold text-[15px] hover:bg-[#9b6bff] active:scale-[0.98] transition-all tracking-wide disabled:opacity-40 disabled:cursor-not-allowed mb-5"
+        >
+          {authLoading ? "..." : authMode === "login" ? "Log in" : "Create account"}
+        </button>
+
+        {/* Divider */}
+        <div className="flex items-center gap-3 mb-5">
+          <div className="flex-1 h-px bg-neutral-800" />
+          <span className="text-[11px] text-neutral-600 uppercase tracking-wider">or</span>
+          <div className="flex-1 h-px bg-neutral-800" />
+        </div>
+
+        {/* Google — requires Google provider enabled in Supabase dashboard */}
+        <button
+          onClick={handleGoogleAuth}
+          className="w-full py-3.5 rounded-xl border border-neutral-800 text-neutral-300 text-sm font-medium hover:border-neutral-700 hover:text-white transition-colors flex items-center justify-center gap-2.5"
+        >
+          <IconGoogle className="w-4 h-4" />
+          Continue with Google
+        </button>
+      </div>
+    );
   }
 
   // ── Settings ──────────────────────────────────────────────────────────────────
@@ -645,18 +904,25 @@ export default function AppPage() {
     return (
       <div className="flex flex-col min-h-screen px-6 max-w-md mx-auto w-full">
         {/* Header */}
-        <div className="pt-10 pb-6 flex items-center gap-3">
+        <div className="pt-10 pb-6">
           {isReturning ? (
-            <>
-              <button
-                onClick={() => setScreen("dashboard")}
-                className="text-neutral-500 hover:text-white transition-colors -ml-1"
-                aria-label="Back"
-              >
-                <IconChevronLeft className="w-5 h-5" />
-              </button>
-              <h1 className="text-lg font-bold tracking-tight">Goals</h1>
-            </>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setScreen("dashboard")}
+                  className="text-neutral-500 hover:text-white transition-colors -ml-1"
+                  aria-label="Back"
+                >
+                  <IconChevronLeft className="w-5 h-5" />
+                </button>
+                <h1 className="text-lg font-bold tracking-tight">Goals</h1>
+              </div>
+              {user?.email && (
+                <span className="text-[11px] text-neutral-700 truncate max-w-[160px]">
+                  {user.email}
+                </span>
+              )}
+            </div>
           ) : (
             <Image
               src="/vitano_logo_transparent_white.png"
@@ -742,13 +1008,19 @@ export default function AppPage() {
           </div>
         </div>
 
-        <div className="pb-10">
+        <div className="pb-10 flex flex-col gap-2">
           <button
             onClick={saveSettings}
             disabled={!goalDraft || parseInt(goalDraft, 10) <= 0}
             className="w-full py-4 rounded-xl bg-[#6d3fd4] text-white font-semibold text-[15px] hover:bg-[#9b6bff] active:scale-[0.98] transition-all tracking-wide disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {isReturning ? "Save" : "Set goals"}
+          </button>
+          <button
+            onClick={handleLogout}
+            className="w-full py-3 text-sm text-neutral-700 hover:text-neutral-500 transition-colors"
+          >
+            Log out
           </button>
         </div>
       </div>
