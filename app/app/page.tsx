@@ -42,13 +42,45 @@ function makeId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+// ── Image compression ─────────────────────────────────────────────────────────
+// Resizes to max 1024px and converts to JPEG — fixes HEIC and oversized photos.
+
+function compressImage(dataUrl: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = document.createElement("img");
+    img.onload = () => {
+      const MAX = 1024;
+      let { width, height } = img;
+      if (width > MAX || height > MAX) {
+        if (width >= height) {
+          height = Math.round((height / width) * MAX);
+          width = MAX;
+        } else {
+          width = Math.round((width / height) * MAX);
+          height = MAX;
+        }
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) { resolve(dataUrl); return; }
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL("image/jpeg", 0.85));
+    };
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+}
+
 // ── AI analysis ───────────────────────────────────────────────────────────────
 
 async function analyzeMeal(imageDataUrl: string): Promise<Macros> {
+  const compressed = await compressImage(imageDataUrl);
   const res = await fetch("/api/analyze", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ image: imageDataUrl }),
+    body: JSON.stringify({ image: compressed }),
   });
   if (!res.ok) {
     const body = (await res.json()) as { error?: string };
@@ -339,7 +371,8 @@ export default function AppPage() {
       setScreen("results");
       setAdjusting(false);
     } catch (err) {
-      setAnalyzeError(err instanceof Error ? err.message : "Couldn't analyse, try again");
+      console.error("[scan] analyse error:", err);
+      setAnalyzeError("Couldn't analyse this photo — please try again");
       setScreen("scan");
     }
   }
