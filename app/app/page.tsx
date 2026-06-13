@@ -514,6 +514,7 @@ export default function AppPage() {
   const [adjusting, setAdjusting] = useState(false);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [settingsSaveErr, setSettingsSaveErr] = useState<string | null>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const libraryInputRef = useRef<HTMLInputElement>(null);
 
@@ -530,9 +531,10 @@ export default function AppPage() {
 
     if (goalsErr) {
       console.error("[db] SELECT user_goals FAILED:", goalsErr.code, goalsErr.message, goalsErr.details);
-    } else {
-      console.log("[db] SELECT user_goals OK:", goalsRow);
+      // Throw so callers can distinguish "DB error" from "new user (no row)"
+      throw new Error(goalsErr.message ?? "Failed to load goals");
     }
+    console.log("[db] SELECT user_goals OK:", goalsRow);
 
     const gr = goalsRow as GoalsRow | null;
     const pg = gr?.protein_goal ?? 0;
@@ -581,10 +583,25 @@ export default function AppPage() {
       }
       setUser(session.user);
       setDisplayName(extractDisplayName(session.user));
-      const pg = await loadAndApplyUserData(session.user.id);
+
+      let pg = 0;
+      let loadFailed = false;
+      try {
+        pg = await loadAndApplyUserData(session.user.id);
+      } catch (loadErr) {
+        console.error("[init] data load failed for existing session:", loadErr);
+        loadFailed = true;
+      }
+
       if (!cancelled) {
         setMounted(true);
-        setScreen(pg > 0 ? "dashboard" : "settings");
+        if (loadFailed) {
+          // Existing user but DB unreachable/blocked — go to dashboard anyway
+          // (empty rings are better than confusingly sending them to "set your goals")
+          setScreen("dashboard");
+        } else {
+          setScreen(pg > 0 ? "dashboard" : "settings");
+        }
       }
     }).catch(console.error);
 
@@ -682,6 +699,7 @@ export default function AppPage() {
   // ── Settings handler ──────────────────────────────────────────────────────────
 
   async function saveSettings() {
+    setSettingsSaveErr(null);
     const n = parseInt(goalDraft, 10);
     if (!n || n <= 0) return;
 
@@ -693,33 +711,37 @@ export default function AppPage() {
     const cbg = !isNaN(carbs) && carbs > 0 ? carbs : 0;
     const fg = !isNaN(fat) && fat > 0 ? fat : 0;
 
+    if (!user) {
+      console.error("[db] saveSettings: user is null");
+      setSettingsSaveErr("Not logged in — please reload and log in again.");
+      return;
+    }
+
+    const payload = {
+      user_id: user.id,
+      protein_goal: n,
+      calories_goal: cg,
+      carbs_goal: cbg,
+      fat_goal: fg,
+      updated_at: new Date().toISOString(),
+    };
+    console.log("[db] UPSERT user_goals — user_id:", user.id, payload);
+    const { error: upsertErr } = await supabase
+      .from("user_goals")
+      .upsert(payload, { onConflict: "user_id" });
+
+    if (upsertErr) {
+      console.error("[db] UPSERT user_goals FAILED:", upsertErr.code, upsertErr.message, upsertErr.details);
+      setSettingsSaveErr(`Save failed (${upsertErr.code}): ${upsertErr.message}`);
+      return; // Don't navigate — the data was NOT persisted
+    }
+    console.log("[db] UPSERT user_goals OK");
+
+    // Only update local state and navigate after confirmed DB write
     setProteinGoal(n);
     setCaloriesGoal(cg);
     setCarbsGoal(cbg);
     setFatGoal(fg);
-
-    if (user) {
-      const payload = {
-        user_id: user.id,
-        protein_goal: n,
-        calories_goal: cg,
-        carbs_goal: cbg,
-        fat_goal: fg,
-        updated_at: new Date().toISOString(),
-      };
-      console.log("[db] UPSERT user_goals — user_id:", user.id, payload);
-      const { data: upsertData, error: upsertErr } = await supabase
-        .from("user_goals")
-        .upsert(payload, { onConflict: "user_id" });
-      if (upsertErr) {
-        console.error("[db] UPSERT user_goals FAILED:", upsertErr.code, upsertErr.message, upsertErr.details);
-      } else {
-        console.log("[db] UPSERT user_goals OK:", upsertData);
-      }
-    } else {
-      console.error("[db] saveSettings called but user is null — goals not persisted");
-    }
-
     setScreen("dashboard");
   }
 
@@ -1080,6 +1102,11 @@ export default function AppPage() {
         </div>
 
         <div className="pb-10 flex flex-col gap-2">
+          {settingsSaveErr && (
+            <p className="text-sm text-red-400 text-center px-3 py-3 bg-red-400/10 rounded-xl border border-red-400/20 leading-relaxed">
+              {settingsSaveErr}
+            </p>
+          )}
           <button
             onClick={saveSettings}
             disabled={!goalDraft || parseInt(goalDraft, 10) <= 0}
