@@ -14,11 +14,19 @@ interface Macros {
 
 type Screen = "scan" | "analyzing" | "results" | "saved";
 
-// ── Mock analysis (swap for real AI call later) ───────────────────────────────
+// ── Real AI analysis ──────────────────────────────────────────────────────────
 
-async function analyzeMeal(_imageDataUrl: string): Promise<Macros> {
-  await new Promise((r) => setTimeout(r, 1800));
-  return { protein: 32, calories: 450, carbs: 40, fat: 18 };
+async function analyzeMeal(imageDataUrl: string): Promise<Macros> {
+  const res = await fetch("/api/analyze", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ image: imageDataUrl }),
+  });
+  if (!res.ok) {
+    const body = (await res.json()) as { error?: string };
+    throw new Error(body.error ?? "Analysis failed");
+  }
+  return res.json() as Promise<Macros>;
 }
 
 // ── Icons (inline SVG — no emojis) ───────────────────────────────────────────
@@ -149,6 +157,7 @@ export default function AppPage() {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [macros, setMacros] = useState<Macros | null>(null);
   const [adjusting, setAdjusting] = useState(false);
+  const [analyzeError, setAnalyzeError] = useState<string | null>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const libraryInputRef = useRef<HTMLInputElement>(null);
 
@@ -163,11 +172,17 @@ export default function AppPage() {
 
   async function handleAnalyze() {
     if (!imageUrl) return;
+    setAnalyzeError(null);
     setScreen("analyzing");
-    const result = await analyzeMeal(imageUrl);
-    setMacros(result);
-    setScreen("results");
-    setAdjusting(false);
+    try {
+      const result = await analyzeMeal(imageUrl);
+      setMacros(result);
+      setScreen("results");
+      setAdjusting(false);
+    } catch (err) {
+      setAnalyzeError(err instanceof Error ? err.message : "Couldn't analyse, try again");
+      setScreen("scan");
+    }
   }
 
   function handleReset() {
@@ -175,6 +190,7 @@ export default function AppPage() {
     setImageUrl(null);
     setMacros(null);
     setAdjusting(false);
+    setAnalyzeError(null);
   }
 
   // ── Scan screen ───────────────────────────────────────────────────────────────
@@ -234,6 +250,11 @@ export default function AppPage() {
         <input ref={libraryInputRef} type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
 
         <div className="mt-5 flex flex-col gap-3">
+          {analyzeError && (
+            <p className="text-red-400 text-sm text-center py-2 px-4 bg-red-400/10 rounded-xl border border-red-400/20">
+              {analyzeError}
+            </p>
+          )}
           {imageUrl && (
             <button
               onClick={handleAnalyze}
