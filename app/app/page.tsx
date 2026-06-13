@@ -519,11 +519,20 @@ export default function AppPage() {
 
   // Loads goals + today's meals from Supabase, sets state, returns protein goal
   const loadAndApplyUserData = useCallback(async (userId: string): Promise<number> => {
-    const { data: goalsRow } = await supabase
+    console.log("[db] loadAndApplyUserData — userId:", userId, "date:", todayISO());
+
+    // ── Goals ──────────────────────────────────────────────────────────────────
+    const { data: goalsRow, error: goalsErr } = await supabase
       .from("user_goals")
       .select("protein_goal, calories_goal, carbs_goal, fat_goal")
       .eq("user_id", userId)
       .maybeSingle();
+
+    if (goalsErr) {
+      console.error("[db] SELECT user_goals FAILED:", goalsErr.code, goalsErr.message, goalsErr.details);
+    } else {
+      console.log("[db] SELECT user_goals OK:", goalsRow);
+    }
 
     const gr = goalsRow as GoalsRow | null;
     const pg = gr?.protein_goal ?? 0;
@@ -536,12 +545,19 @@ export default function AppPage() {
     if (cbg > 0) { setCarbsGoal(cbg); setCarbsDraft(String(cbg)); }
     if (fg > 0) { setFatGoal(fg); setFatDraft(String(fg)); }
 
-    const { data: mealsRows } = await supabase
+    // ── Meals ──────────────────────────────────────────────────────────────────
+    const { data: mealsRows, error: mealsErr } = await supabase
       .from("meal_logs")
       .select("id, items, protein, calories, carbs, fat, thumbnail")
       .eq("user_id", userId)
       .eq("logged_date", todayISO())
       .order("created_at");
+
+    if (mealsErr) {
+      console.error("[db] SELECT meal_logs FAILED:", mealsErr.code, mealsErr.message, mealsErr.details);
+    } else {
+      console.log("[db] SELECT meal_logs OK:", mealsRows?.length ?? 0, "rows");
+    }
 
     if (mealsRows?.length) {
       setDailyLog({ date: todayISO(), meals: (mealsRows as MealRow[]).map(rowToMeal) });
@@ -554,8 +570,10 @@ export default function AppPage() {
   useEffect(() => {
     let cancelled = false;
 
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session }, error: sessionErr }) => {
       if (cancelled) return;
+      if (sessionErr) console.error("[auth] getSession error:", sessionErr);
+      console.log("[auth] session on mount:", session ? `uid=${session.user.id}` : "none");
       if (!session?.user) {
         setMounted(true);
         setScreen("auth");
@@ -681,18 +699,25 @@ export default function AppPage() {
     setFatGoal(fg);
 
     if (user) {
-      const { error } = await supabase.from("user_goals").upsert(
-        {
-          user_id: user.id,
-          protein_goal: n,
-          calories_goal: cg,
-          carbs_goal: cbg,
-          fat_goal: fg,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "user_id" }
-      );
-      if (error) console.error("[settings] upsert failed:", error);
+      const payload = {
+        user_id: user.id,
+        protein_goal: n,
+        calories_goal: cg,
+        carbs_goal: cbg,
+        fat_goal: fg,
+        updated_at: new Date().toISOString(),
+      };
+      console.log("[db] UPSERT user_goals — user_id:", user.id, payload);
+      const { data: upsertData, error: upsertErr } = await supabase
+        .from("user_goals")
+        .upsert(payload, { onConflict: "user_id" });
+      if (upsertErr) {
+        console.error("[db] UPSERT user_goals FAILED:", upsertErr.code, upsertErr.message, upsertErr.details);
+      } else {
+        console.log("[db] UPSERT user_goals OK:", upsertData);
+      }
+    } else {
+      console.error("[db] saveSettings called but user is null — goals not persisted");
     }
 
     setScreen("dashboard");
@@ -761,11 +786,12 @@ export default function AppPage() {
     setAdjusting(false);
     setScreen("dashboard");
 
-    // Sync to Supabase in background
-    if (user) {
-      supabase.from("meal_logs").insert({
+    // Sync to Supabase in background (optimistic update already applied above)
+    const userId = user?.id ?? null;
+    if (userId) {
+      const mealPayload = {
         id: meal.id,
-        user_id: user.id,
+        user_id: userId,
         logged_date: todayISO(),
         items: meal.items,
         protein: meal.protein,
@@ -773,9 +799,17 @@ export default function AppPage() {
         carbs: meal.carbs,
         fat: meal.fat,
         thumbnail: meal.thumbnail ?? null,
-      }).then(({ error }) => {
-        if (error) console.error("[save] Supabase insert failed:", error);
+      };
+      console.log("[db] INSERT meal_logs — user_id:", userId, "meal_id:", meal.id);
+      supabase.from("meal_logs").insert(mealPayload).then(({ error }) => {
+        if (error) {
+          console.error("[db] INSERT meal_logs FAILED:", error.code, error.message, error.details);
+        } else {
+          console.log("[db] INSERT meal_logs OK — meal_id:", meal.id);
+        }
       });
+    } else {
+      console.error("[db] handleSaveMeal: user is null, meal not persisted to Supabase");
     }
   }
 
@@ -785,12 +819,17 @@ export default function AppPage() {
       meals: prev.meals.filter((m) => m.id !== id),
     }));
 
-    if (user) {
+    const userId = user?.id ?? null;
+    if (userId) {
+      console.log("[db] DELETE meal_logs — meal_id:", id);
       supabase.from("meal_logs").delete()
-        .eq("id", id).eq("user_id", user.id)
+        .eq("id", id).eq("user_id", userId)
         .then(({ error }) => {
-          if (error) console.error("[delete] Supabase delete failed:", error);
+          if (error) console.error("[db] DELETE meal_logs FAILED:", error.code, error.message);
+          else console.log("[db] DELETE meal_logs OK — meal_id:", id);
         });
+    } else {
+      console.error("[db] deleteMeal: user is null");
     }
   }
 
@@ -799,12 +838,17 @@ export default function AppPage() {
     setDailyLog({ date: today, meals: [] });
     setConfirmReset(false);
 
-    if (user) {
+    const userId = user?.id ?? null;
+    if (userId) {
+      console.log("[db] DELETE meal_logs (reset) — user_id:", userId, "date:", today);
       supabase.from("meal_logs").delete()
-        .eq("user_id", user.id).eq("logged_date", today)
+        .eq("user_id", userId).eq("logged_date", today)
         .then(({ error }) => {
-          if (error) console.error("[reset] Supabase delete failed:", error);
+          if (error) console.error("[db] DELETE meal_logs (reset) FAILED:", error.code, error.message);
+          else console.log("[db] DELETE meal_logs (reset) OK");
         });
+    } else {
+      console.error("[db] resetDay: user is null");
     }
   }
 
