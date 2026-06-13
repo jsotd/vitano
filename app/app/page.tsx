@@ -738,10 +738,10 @@ export default function AppPage() {
               setConfirmReset(false);
               setScreen("settings");
             }}
-            className="text-neutral-600 hover:text-white transition-colors p-1"
+            className="w-10 h-10 flex items-center justify-center rounded-full border border-[#9b6bff]/30 text-[#9b6bff] hover:bg-[#9b6bff]/10 hover:border-[#9b6bff]/60 active:scale-95 transition-all"
             aria-label="Edit goals"
           >
-            <IconPencil className="w-4 h-4" />
+            <IconPencil className="w-5 h-5" />
           </button>
         </div>
 
@@ -763,46 +763,40 @@ export default function AppPage() {
 
         {/* Meal list */}
         <div className="flex-1 px-5 pb-32">
-          <div className="flex items-center justify-between mb-3 min-h-[20px]">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-500">
+              Today&apos;s meals
+            </h2>
             {confirmReset ? (
-              <>
-                <span className="text-[11px] text-neutral-400">
-                  Reset today&apos;s progress?
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setConfirmReset(false)}
-                    className="text-[11px] text-neutral-500 hover:text-white transition-colors px-1"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={resetDay}
-                    className="text-[11px] font-semibold text-red-400 hover:text-red-300 border border-red-400/30 hover:border-red-400/60 rounded-lg px-2.5 py-1 transition-colors"
-                  >
-                    Reset
-                  </button>
-                </div>
-              </>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-neutral-400">Reset today&apos;s progress?</span>
+                <button
+                  onClick={() => setConfirmReset(false)}
+                  className="text-sm text-neutral-500 hover:text-white transition-colors px-2 py-1"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={resetDay}
+                  className="text-sm font-semibold text-red-400 hover:text-red-300 border border-red-400/30 hover:border-red-400/60 rounded-lg px-3 py-1 transition-colors"
+                >
+                  Reset
+                </button>
+              </div>
             ) : (
-              <>
-                <h2 className="text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-500">
-                  Today&apos;s meals
-                </h2>
-                <div className="flex items-center gap-3">
-                  <span className="text-[11px] text-neutral-700">
-                    {dailyLog.meals.length} logged
-                  </span>
-                  {dailyLog.meals.length > 0 && (
-                    <button
-                      onClick={() => setConfirmReset(true)}
-                      className="text-[10px] text-neutral-700 hover:text-neutral-400 transition-colors tracking-wide"
-                    >
-                      start fresh
-                    </button>
-                  )}
-                </div>
-              </>
+              <div className="flex items-center gap-3">
+                <span className="text-[11px] text-neutral-700">
+                  {dailyLog.meals.length} logged
+                </span>
+                {dailyLog.meals.length > 0 && (
+                  <button
+                    onClick={() => setConfirmReset(true)}
+                    className="text-[13px] font-medium text-[#9b6bff] hover:text-[#b891ff] active:scale-95 transition-all px-2 py-1 -mr-2"
+                  >
+                    Reset today
+                  </button>
+                )}
+              </div>
             )}
           </div>
 
