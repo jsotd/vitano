@@ -475,15 +475,24 @@ function GoalInput({
   );
 }
 
+// ── Name helper ──────────────────────────────────────────────────────────────
+
+function extractDisplayName(user: User): string | null {
+  const m = user.user_metadata as Record<string, string> | undefined;
+  return m?.display_name ?? m?.given_name ?? m?.full_name ?? m?.name ?? null;
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function AppPage() {
   const [mounted, setMounted] = useState(false);
   const [screen, setScreen] = useState<Screen>("init");
   const [user, setUser] = useState<User | null>(null);
+  const [displayName, setDisplayName] = useState<string | null>(null);
 
   // Auth
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
+  const [authName, setAuthName] = useState("");
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
@@ -553,6 +562,7 @@ export default function AppPage() {
         return;
       }
       setUser(session.user);
+      setDisplayName(extractDisplayName(session.user));
       const pg = await loadAndApplyUserData(session.user.id);
       if (!cancelled) {
         setMounted(true);
@@ -563,6 +573,7 @@ export default function AppPage() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (!cancelled && event === "SIGNED_OUT") {
         setUser(null);
+        setDisplayName(null);
         setProteinGoal(0); setGoalDraft("");
         setCaloriesGoal(0); setCalDraft("");
         setCarbsGoal(0); setCarbsDraft("");
@@ -602,11 +613,13 @@ export default function AppPage() {
         const { data, error } = await supabase.auth.signUp({
           email: authEmail.trim(),
           password: authPassword,
+          options: { data: { display_name: authName.trim() } },
         });
         if (error) throw error;
 
         if (data.session && data.user) {
           setUser(data.user);
+          setDisplayName(authName.trim() || extractDisplayName(data.user));
           setMounted(true);
           setScreen("settings");
         } else {
@@ -623,6 +636,7 @@ export default function AppPage() {
         if (error) throw error;
 
         setUser(data.user);
+        setDisplayName(extractDisplayName(data.user));
         const pg = await loadAndApplyUserData(data.user.id);
         setMounted(true);
         setScreen(pg > 0 ? "dashboard" : "settings");
@@ -801,7 +815,10 @@ export default function AppPage() {
 
   // ── Auth ──────────────────────────────────────────────────────────────────────
   if (screen === "auth") {
-    const canSubmit = authEmail.trim().length > 0 && authPassword.length >= 6;
+    const canSubmit =
+      authEmail.trim().length > 0 &&
+      authPassword.length >= 6 &&
+      (authMode === "login" || authName.trim().length > 0);
 
     return (
       <div className="flex flex-col min-h-screen px-6 max-w-md mx-auto w-full">
@@ -820,7 +837,7 @@ export default function AppPage() {
         {/* Mode toggle */}
         <div className="flex bg-neutral-900 rounded-xl p-1 mb-7 border border-neutral-800">
           <button
-            onClick={() => { setAuthMode("login"); setAuthError(null); }}
+            onClick={() => { setAuthMode("login"); setAuthError(null); setAuthName(""); }}
             className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all ${
               authMode === "login"
                 ? "bg-[#6d3fd4] text-white"
@@ -843,6 +860,16 @@ export default function AppPage() {
 
         {/* Form */}
         <div className="flex flex-col gap-3 mb-4">
+          {authMode === "signup" && (
+            <input
+              type="text"
+              value={authName}
+              onChange={(e) => setAuthName(e.target.value)}
+              placeholder="What should we call you?"
+              autoComplete="given-name"
+              className="w-full px-4 py-3.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white text-[15px] focus:outline-none focus:border-[#9b6bff] transition-colors placeholder:text-neutral-700"
+            />
+          )}
           <input
             type="email"
             value={authEmail}
@@ -1063,9 +1090,16 @@ export default function AppPage() {
           </button>
         </div>
 
-        <p className="px-5 text-[11px] font-medium uppercase tracking-[0.16em] text-neutral-700 mb-6">
-          {dateLabel}
-        </p>
+        <div className="px-5 mb-6">
+          {displayName && (
+            <p className="text-neutral-300 text-[15px] font-semibold tracking-tight mb-0.5">
+              Hi, {displayName}
+            </p>
+          )}
+          <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-neutral-700">
+            {dateLabel}
+          </p>
+        </div>
 
         {/* Protein ring */}
         <div className="flex justify-center mb-6">
