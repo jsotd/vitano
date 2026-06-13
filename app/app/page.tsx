@@ -37,6 +37,7 @@ interface GoalsRow {
   calories_goal: number;
   carbs_goal: number;
   fat_goal: number;
+  country: string;
 }
 
 interface MealRow {
@@ -132,12 +133,12 @@ function makeThumbnail(dataUrl: string): Promise<string> {
 
 // ── AI analysis ───────────────────────────────────────────────────────────────
 
-async function analyzeMeal(imageDataUrl: string): Promise<Macros> {
+async function analyzeMeal(imageDataUrl: string, country?: string): Promise<Macros> {
   const compressed = await compressImage(imageDataUrl);
   const res = await fetch("/api/analyze", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ image: compressed }),
+    body: JSON.stringify({ image: compressed, ...(country ? { country } : {}) }),
   });
   if (!res.ok) {
     const body = (await res.json()) as { error?: string };
@@ -145,6 +146,46 @@ async function analyzeMeal(imageDataUrl: string): Promise<Macros> {
   }
   return res.json() as Promise<Macros>;
 }
+
+// ── Country list ─────────────────────────────────────────────────────────────
+
+const COUNTRIES = [
+  "Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Antigua and Barbuda",
+  "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan", "Bahamas",
+  "Bahrain", "Bangladesh", "Barbados", "Belarus", "Belgium", "Belize",
+  "Benin", "Bhutan", "Bolivia", "Bosnia and Herzegovina", "Botswana", "Brazil",
+  "Brunei", "Bulgaria", "Burkina Faso", "Burundi", "Cabo Verde", "Cambodia",
+  "Cameroon", "Canada", "Central African Republic", "Chad", "Chile", "China",
+  "Colombia", "Comoros", "Congo", "Costa Rica", "Croatia", "Cuba",
+  "Cyprus", "Czech Republic", "Denmark", "Djibouti", "Dominica",
+  "Dominican Republic", "Ecuador", "Egypt", "El Salvador",
+  "Equatorial Guinea", "Eritrea", "Estonia", "Eswatini", "Ethiopia",
+  "Fiji", "Finland", "France", "Gabon", "Gambia", "Georgia",
+  "Germany", "Ghana", "Greece", "Grenada", "Guatemala", "Guinea",
+  "Guinea-Bissau", "Guyana", "Haiti", "Honduras", "Hungary", "Iceland",
+  "India", "Indonesia", "Iran", "Iraq", "Ireland", "Israel",
+  "Italy", "Jamaica", "Japan", "Jordan", "Kazakhstan", "Kenya",
+  "Kiribati", "Kuwait", "Kyrgyzstan", "Laos", "Latvia", "Lebanon",
+  "Lesotho", "Liberia", "Libya", "Liechtenstein", "Lithuania", "Luxembourg",
+  "Madagascar", "Malawi", "Malaysia", "Maldives", "Mali", "Malta",
+  "Marshall Islands", "Mauritania", "Mauritius", "Mexico", "Micronesia",
+  "Moldova", "Monaco", "Mongolia", "Montenegro", "Morocco", "Mozambique",
+  "Myanmar", "Namibia", "Nauru", "Nepal", "Netherlands", "New Zealand",
+  "Nicaragua", "Niger", "Nigeria", "North Korea", "North Macedonia", "Norway",
+  "Oman", "Pakistan", "Palau", "Panama", "Papua New Guinea", "Paraguay",
+  "Peru", "Philippines", "Poland", "Portugal", "Qatar", "Romania",
+  "Russia", "Rwanda", "Saint Kitts and Nevis", "Saint Lucia",
+  "Saint Vincent and the Grenadines", "Samoa", "San Marino",
+  "Sao Tome and Principe", "Saudi Arabia", "Senegal", "Serbia",
+  "Seychelles", "Sierra Leone", "Singapore", "Slovakia", "Slovenia",
+  "Solomon Islands", "Somalia", "South Africa", "South Korea", "South Sudan",
+  "Spain", "Sri Lanka", "Sudan", "Suriname", "Sweden", "Switzerland",
+  "Syria", "Taiwan", "Tajikistan", "Tanzania", "Thailand", "Timor-Leste",
+  "Togo", "Tonga", "Trinidad and Tobago", "Tunisia", "Turkey",
+  "Turkmenistan", "Tuvalu", "Uganda", "Ukraine", "United Arab Emirates",
+  "United Kingdom", "United States", "Uruguay", "Uzbekistan", "Vanuatu",
+  "Vatican City", "Venezuela", "Vietnam", "Yemen", "Zambia", "Zimbabwe",
+];
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
 
@@ -206,6 +247,14 @@ function IconChevronLeft({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
       <polyline points="15 18 9 12 15 6" />
+    </svg>
+  );
+}
+
+function IconChevronDown({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="6 9 12 15 18 9" />
     </svg>
   );
 }
@@ -507,6 +556,8 @@ export default function AppPage() {
   const [calDraft, setCalDraft] = useState("");
   const [carbsDraft, setCarbsDraft] = useState("");
   const [fatDraft, setFatDraft] = useState("");
+  const [country, setCountry] = useState("Bulgaria");
+  const [countryDraft, setCountryDraft] = useState("Bulgaria");
 
   const [dailyLog, setDailyLog] = useState<DailyLog>({ date: todayISO(), meals: [] });
   const [imageUrl, setImageUrl] = useState<string | null>(null);
@@ -525,7 +576,7 @@ export default function AppPage() {
     // ── Goals ──────────────────────────────────────────────────────────────────
     const { data: goalsRow, error: goalsErr } = await supabase
       .from("user_goals")
-      .select("protein_goal, calories_goal, carbs_goal, fat_goal")
+      .select("protein_goal, calories_goal, carbs_goal, fat_goal, country")
       .eq("user_id", userId)
       .maybeSingle();
 
@@ -546,6 +597,7 @@ export default function AppPage() {
     if (cg > 0) { setCaloriesGoal(cg); setCalDraft(String(cg)); }
     if (cbg > 0) { setCarbsGoal(cbg); setCarbsDraft(String(cbg)); }
     if (fg > 0) { setFatGoal(fg); setFatDraft(String(fg)); }
+    if (gr?.country) { setCountry(gr.country); setCountryDraft(gr.country); }
 
     // ── Meals ──────────────────────────────────────────────────────────────────
     const { data: mealsRows, error: mealsErr } = await supabase
@@ -613,6 +665,7 @@ export default function AppPage() {
         setCaloriesGoal(0); setCalDraft("");
         setCarbsGoal(0); setCarbsDraft("");
         setFatGoal(0); setFatDraft("");
+        setCountry("Bulgaria"); setCountryDraft("Bulgaria");
         setDailyLog({ date: todayISO(), meals: [] });
         setMounted(true);
         setScreen("auth");
@@ -723,6 +776,7 @@ export default function AppPage() {
       calories_goal: cg,
       carbs_goal: cbg,
       fat_goal: fg,
+      country: countryDraft.trim() || "Bulgaria",
       updated_at: new Date().toISOString(),
     };
     console.log("[db] UPSERT user_goals — user_id:", user.id, payload);
@@ -742,6 +796,7 @@ export default function AppPage() {
     setCaloriesGoal(cg);
     setCarbsGoal(cbg);
     setFatGoal(fg);
+    setCountry(payload.country);
     setScreen("dashboard");
   }
 
@@ -761,7 +816,7 @@ export default function AppPage() {
     setAnalyzeError(null);
     setScreen("analyzing");
     try {
-      const result = await analyzeMeal(imageUrl);
+      const result = await analyzeMeal(imageUrl, country);
       setMacros(result);
       setScreen("results");
       setAdjusting(false);
@@ -1099,6 +1154,30 @@ export default function AppPage() {
               />
             </div>
           </div>
+
+          {/* Country */}
+          <div>
+            <div className="flex items-baseline gap-2 mb-2">
+              <label className="text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-500">
+                Country
+              </label>
+              <span className="text-[10px] text-neutral-700 uppercase tracking-wide">for local food recognition</span>
+            </div>
+            <div className="relative">
+              <select
+                value={countryDraft}
+                onChange={(e) => setCountryDraft(e.target.value)}
+                className="w-full px-4 py-3.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white text-[15px] font-medium focus:outline-none focus:border-[#9b6bff] transition-colors appearance-none cursor-pointer"
+              >
+                {COUNTRIES.map((c) => (
+                  <option key={c} value={c} className="bg-neutral-900">{c}</option>
+                ))}
+              </select>
+              <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-neutral-500">
+                <IconChevronDown className="w-4 h-4" />
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="pb-10 flex flex-col gap-2">
@@ -1151,6 +1230,7 @@ export default function AppPage() {
               setCalDraft(caloriesGoal > 0 ? String(caloriesGoal) : "");
               setCarbsDraft(carbsGoal > 0 ? String(carbsGoal) : "");
               setFatDraft(fatGoal > 0 ? String(fatGoal) : "");
+              setCountryDraft(country);
               setConfirmReset(false);
               setScreen("settings");
             }}

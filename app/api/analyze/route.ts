@@ -11,14 +11,19 @@ interface AnalysisResult {
 // OpenAI vision supports these formats only
 const SUPPORTED_MIME_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 
-const SYSTEM_PROMPT = `You are a nutrition estimator. The user will send you a photo of a meal.
+function buildSystemPrompt(country?: string): string {
+  const countryLine = country
+    ? `\n- The user is from ${country}. Prioritise recognising local dishes, brands, and ingredients common in ${country}.`
+    : "";
+  return `You are a nutrition estimator. The user will send you a photo of a meal.
 Identify the food items you can see, then estimate the full meal's macros.
 Return ONLY a JSON object — no explanation, no markdown, no extra text, no code fences.
 Format exactly: {"items": ["food 1", "food 2"], "protein": <grams>, "calories": <kcal>, "carbs": <grams>, "fat": <grams>}
 Rules:
 - "items" must be a non-empty array of short, plain food names (e.g. "chicken breast", "white rice", "olive oil")
 - All macro values must be non-negative integers
-- Estimate for the full visible portion`;
+- Estimate for the full visible portion${countryLine}`;
+}
 
 // Extract the first complete JSON object from a string, ignoring surrounding text
 function extractJsonObject(text: string): string {
@@ -79,7 +84,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "image field required (base64 data URL)" }, { status: 400 });
   }
 
-  const imageDataUrl = (body as Record<string, string>).image;
+  const imageDataUrl = (body as Record<string, unknown>).image as string;
+  const country = typeof (body as Record<string, unknown>).country === "string"
+    ? ((body as Record<string, unknown>).country as string).trim() || undefined
+    : undefined;
 
   // Parse data URL — be lenient with the subtype to handle heic/heif variants
   const match = imageDataUrl.match(/^data:(image\/[a-zA-Z0-9.+_-]+);base64,([\s\S]+)$/);
@@ -110,7 +118,7 @@ export async function POST(req: NextRequest) {
         model: "gpt-4o",
         max_tokens: 300,
         messages: [
-          { role: "system", content: SYSTEM_PROMPT },
+          { role: "system", content: buildSystemPrompt(country) },
           {
             role: "user",
             content: [
