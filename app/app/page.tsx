@@ -50,7 +50,19 @@ interface MealRow {
   thumbnail: string | null;
 }
 
-type Screen = "init" | "auth" | "settings" | "dashboard" | "scan" | "analyzing" | "results";
+interface HistoryMealRow extends MealRow {
+  logged_date: string;
+}
+
+interface HistoryDay {
+  date: string;
+  protein: number;
+  calories: number;
+  meals: LoggedMeal[];
+  hit: boolean;
+}
+
+type Screen = "init" | "auth" | "settings" | "dashboard" | "scan" | "analyzing" | "results" | "history";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -73,6 +85,15 @@ function rowToMeal(row: MealRow): LoggedMeal {
     fat: row.fat,
     thumbnail: row.thumbnail ?? undefined,
   };
+}
+
+function formatHistoryDate(isoDate: string): string {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
 }
 
 // ── Image compression ─────────────────────────────────────────────────────────
@@ -255,6 +276,17 @@ function IconChevronDown({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
       <polyline points="6 9 12 15 18 9" />
+    </svg>
+  );
+}
+
+function IconCalendar({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="4" width="18" height="18" rx="2" />
+      <line x1="16" y1="2" x2="16" y2="6" />
+      <line x1="8" y1="2" x2="8" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
     </svg>
   );
 }
@@ -566,6 +598,9 @@ export default function AppPage() {
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [settingsSaveErr, setSettingsSaveErr] = useState<string | null>(null);
+  const [historyDays, setHistoryDays] = useState<HistoryDay[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyExpandedDate, setHistoryExpandedDate] = useState<string | null>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const libraryInputRef = useRef<HTMLInputElement>(null);
 
@@ -747,6 +782,57 @@ export default function AppPage() {
   async function handleLogout() {
     await supabase.auth.signOut();
     // onAuthStateChange SIGNED_OUT handles state reset
+  }
+
+  // ── History handler ───────────────────────────────────────────────────────────
+
+  async function loadHistory() {
+    if (!user) return;
+    setHistoryLoading(true);
+    setHistoryExpandedDate(null);
+
+    const today = todayISO();
+    const since = new Date();
+    since.setDate(since.getDate() - 30);
+    const startDate = `${since.getFullYear()}-${String(since.getMonth() + 1).padStart(2, "0")}-${String(since.getDate()).padStart(2, "0")}`;
+
+    console.log("[db] SELECT history meal_logs — user_id:", user.id, "from:", startDate);
+    const { data, error } = await supabase
+      .from("meal_logs")
+      .select("id, items, protein, calories, carbs, fat, thumbnail, logged_date")
+      .eq("user_id", user.id)
+      .gte("logged_date", startDate)
+      .lt("logged_date", today)
+      .order("logged_date", { ascending: false });
+
+    if (error) {
+      console.error("[db] SELECT history FAILED:", error.code, error.message);
+      setHistoryLoading(false);
+      return;
+    }
+    console.log("[db] SELECT history OK:", data?.length ?? 0, "rows");
+
+    const byDate: Record<string, LoggedMeal[]> = {};
+    (data as HistoryMealRow[]).forEach((row) => {
+      if (!byDate[row.logged_date]) byDate[row.logged_date] = [];
+      byDate[row.logged_date].push(rowToMeal(row));
+    });
+
+    const days: HistoryDay[] = Object.entries(byDate)
+      .map(([date, meals]) => {
+        const protein = meals.reduce((s, m) => s + m.protein, 0);
+        return {
+          date,
+          protein,
+          calories: meals.reduce((s, m) => s + m.calories, 0),
+          meals,
+          hit: proteinGoal > 0 && protein >= proteinGoal,
+        };
+      })
+      .sort((a, b) => b.date.localeCompare(a.date));
+
+    setHistoryDays(days);
+    setHistoryLoading(false);
   }
 
   // ── Settings handler ──────────────────────────────────────────────────────────
@@ -1224,21 +1310,30 @@ export default function AppPage() {
             className="object-contain"
             priority
           />
-          <button
-            onClick={() => {
-              setGoalDraft(String(proteinGoal));
-              setCalDraft(caloriesGoal > 0 ? String(caloriesGoal) : "");
-              setCarbsDraft(carbsGoal > 0 ? String(carbsGoal) : "");
-              setFatDraft(fatGoal > 0 ? String(fatGoal) : "");
-              setCountryDraft(country);
-              setConfirmReset(false);
-              setScreen("settings");
-            }}
-            className="w-10 h-10 flex items-center justify-center rounded-full border border-[#9b6bff]/30 text-[#9b6bff] hover:bg-[#9b6bff]/10 hover:border-[#9b6bff]/60 active:scale-95 transition-all"
-            aria-label="Edit goals"
-          >
-            <IconPencil className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => { loadHistory(); setScreen("history"); }}
+              className="w-10 h-10 flex items-center justify-center rounded-full border border-[#9b6bff]/30 text-[#9b6bff] hover:bg-[#9b6bff]/10 hover:border-[#9b6bff]/60 active:scale-95 transition-all"
+              aria-label="History"
+            >
+              <IconCalendar className="w-[18px] h-[18px]" />
+            </button>
+            <button
+              onClick={() => {
+                setGoalDraft(String(proteinGoal));
+                setCalDraft(caloriesGoal > 0 ? String(caloriesGoal) : "");
+                setCarbsDraft(carbsGoal > 0 ? String(carbsGoal) : "");
+                setFatDraft(fatGoal > 0 ? String(fatGoal) : "");
+                setCountryDraft(country);
+                setConfirmReset(false);
+                setScreen("settings");
+              }}
+              className="w-10 h-10 flex items-center justify-center rounded-full border border-[#9b6bff]/30 text-[#9b6bff] hover:bg-[#9b6bff]/10 hover:border-[#9b6bff]/60 active:scale-95 transition-all"
+              aria-label="Edit goals"
+            >
+              <IconPencil className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         <div className="px-5 mb-6">
@@ -1575,6 +1670,139 @@ export default function AppPage() {
         >
           Save to today
         </button>
+      </div>
+    );
+  }
+
+  // ── History ───────────────────────────────────────────────────────────────────
+  if (screen === "history") {
+    const hitCount = historyDays.filter((d) => d.hit).length;
+
+    return (
+      <div className="flex flex-col min-h-screen max-w-md mx-auto w-full">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 pt-10 pb-5">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setScreen("dashboard")}
+              className="text-neutral-500 hover:text-white transition-colors -ml-1"
+              aria-label="Back"
+            >
+              <IconChevronLeft className="w-5 h-5" />
+            </button>
+            <h1 className="text-lg font-bold tracking-tight">History</h1>
+          </div>
+          {!historyLoading && historyDays.length > 0 && (
+            <span className="text-[11px] text-neutral-600 font-medium">
+              {hitCount} / {historyDays.length} days hit
+            </span>
+          )}
+        </div>
+
+        <div className="flex-1 px-5 pb-10">
+          {historyLoading ? (
+            <div className="flex items-center justify-center py-20">
+              <div className="relative w-10 h-10">
+                <div className="absolute inset-0 rounded-full border-2 border-neutral-800" />
+                <div className="absolute inset-0 rounded-full border-2 border-t-[#9b6bff] animate-spin" />
+              </div>
+            </div>
+          ) : historyDays.length === 0 ? (
+            <div className="text-center py-20">
+              <p className="text-neutral-600 text-sm">No past meals found.</p>
+              <p className="text-neutral-700 text-xs mt-1.5 leading-relaxed">
+                Your meal history will appear here as you track meals over time.
+              </p>
+            </div>
+          ) : (
+            <div className="flex flex-col rounded-2xl overflow-hidden border border-neutral-800/60">
+              {historyDays.map((day, i) => (
+                <div key={day.date} className={i > 0 ? "border-t border-neutral-800/60" : ""}>
+                  {/* Day row */}
+                  <button
+                    onClick={() =>
+                      setHistoryExpandedDate(
+                        historyExpandedDate === day.date ? null : day.date
+                      )
+                    }
+                    className="w-full flex items-center justify-between px-4 py-3.5 bg-neutral-950 hover:bg-neutral-900 active:bg-neutral-900 transition-colors text-left"
+                  >
+                    <div>
+                      <p className="text-[14px] font-semibold text-white leading-snug">
+                        {formatHistoryDate(day.date)}
+                      </p>
+                      <p className="text-[11px] text-neutral-600 mt-0.5">
+                        {day.meals.length} meal{day.meals.length !== 1 ? "s" : ""}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2.5">
+                      {/* Protein total */}
+                      <div className="text-right">
+                        <span
+                          className={`text-[14px] font-bold tabular-nums ${
+                            day.hit ? "text-[#9b6bff]" : "text-neutral-400"
+                          }`}
+                        >
+                          {day.protein}g
+                        </span>
+                        {proteinGoal > 0 && (
+                          <span className="text-[11px] text-neutral-700">
+                            {" "}/ {proteinGoal}g
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Hit / Miss badge */}
+                      <div
+                        className={`min-w-[40px] text-center px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider ${
+                          day.hit
+                            ? "bg-[#9b6bff]/15 text-[#9b6bff]"
+                            : "bg-neutral-900 text-neutral-600 border border-neutral-800"
+                        }`}
+                      >
+                        {day.hit ? "Hit" : "Miss"}
+                      </div>
+                    </div>
+                  </button>
+
+                  {/* Expanded meal list */}
+                  {historyExpandedDate === day.date && (
+                    <div className="border-t border-neutral-800/50 bg-[#0a0a0a]">
+                      {day.meals.map((meal) => (
+                        <div
+                          key={meal.id}
+                          className="flex items-center gap-3 px-4 py-2.5 border-b border-neutral-800/30 last:border-b-0"
+                        >
+                          <div className="w-9 h-9 rounded-lg overflow-hidden flex-shrink-0 bg-neutral-900 border border-neutral-800/40">
+                            {meal.thumbnail ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={meal.thumbnail}
+                                alt=""
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <div className="w-full h-full bg-neutral-900" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[12px] text-neutral-300 font-medium truncate leading-snug">
+                              {meal.items.join(", ")}
+                            </p>
+                            <p className="text-[11px] text-[#9b6bff] mt-0.5">
+                              {meal.protein}g protein
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
