@@ -20,6 +20,7 @@ interface LoggedMeal {
   calories: number;
   carbs: number;
   fat: number;
+  thumbnail?: string; // compressed data URL, ~200px JPEG
 }
 
 interface DailyLog {
@@ -72,6 +73,33 @@ function compressImage(dataUrl: string): Promise<string> {
       resolve(canvas.toDataURL("image/jpeg", 0.85));
     };
     img.onerror = reject;
+    img.src = dataUrl;
+  });
+}
+
+// Thumbnail: max 200px, 0.6 quality — keeps localStorage footprint small (~5–15 KB each).
+function makeThumbnail(dataUrl: string): Promise<string> {
+  return new Promise((resolve) => {
+    const img = document.createElement("img");
+    img.onload = () => {
+      const MAX = 200;
+      let { width, height } = img;
+      if (width >= height) {
+        height = Math.round((height / width) * MAX);
+        width = MAX;
+      } else {
+        width = Math.round((width / height) * MAX);
+        height = MAX;
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) { resolve(""); return; }
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL("image/jpeg", 0.6));
+    };
+    img.onerror = () => resolve("");
     img.src = dataUrl;
   });
 }
@@ -558,8 +586,24 @@ export default function AppPage() {
     }
   }
 
-  function handleSaveMeal() {
+  async function handleSaveMeal() {
     if (!macros) return;
+
+    let thumbnail: string | undefined;
+    if (imageUrl) {
+      try {
+        const t = await makeThumbnail(imageUrl);
+        if (t) {
+          thumbnail = t;
+          console.log("[save] thumbnail generated, bytes:", t.length);
+        } else {
+          console.warn("[save] makeThumbnail returned empty string");
+        }
+      } catch (err) {
+        console.warn("[save] thumbnail failed:", err);
+      }
+    }
+
     const meal: LoggedMeal = {
       id: makeId(),
       items: macros.items,
@@ -567,7 +611,9 @@ export default function AppPage() {
       calories: macros.calories,
       carbs: macros.carbs,
       fat: macros.fat,
+      ...(thumbnail ? { thumbnail } : {}),
     };
+    console.log("[save] meal saved, hasThumbnail:", !!meal.thumbnail, "protein:", meal.protein);
     setDailyLog((prev) => ({ ...prev, meals: [...prev.meals, meal] }));
     setImageUrl(null);
     setMacros(null);
@@ -810,16 +856,43 @@ export default function AppPage() {
               {dailyLog.meals.map((meal) => (
                 <div
                   key={meal.id}
-                  className="flex items-center gap-3 px-4 py-3.5 bg-neutral-950 border border-neutral-800/60 rounded-xl"
+                  className="flex items-center gap-3 px-3 py-3 bg-neutral-950 border border-neutral-800/60 rounded-xl"
                 >
+                  {/* Thumbnail */}
+                  <div className="w-12 h-12 rounded-lg overflow-hidden flex-shrink-0 bg-neutral-900 border border-neutral-800/40">
+                    {meal.thumbnail ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={meal.thumbnail}
+                        alt=""
+                        className="w-full h-full object-cover"
+                        onLoad={() => console.log("[render] thumbnail ok:", meal.id)}
+                        onError={() => console.warn("[render] thumbnail error:", meal.id)}
+                      />
+                    ) : (
+                      <div className="w-full h-full bg-neutral-900" />
+                    )}
+                  </div>
+
+                  {/* Meal info */}
                   <div className="flex-1 min-w-0">
                     <p className="text-white text-sm font-medium truncate leading-snug">
                       {meal.items.join(", ")}
                     </p>
-                    <p className="text-[#9b6bff] text-xs mt-0.5 font-semibold">
-                      {meal.protein}g protein
-                    </p>
+                    <div className="flex flex-wrap gap-x-2.5 gap-y-0 mt-0.5">
+                      <span className="text-xs text-[#9b6bff] font-semibold">{meal.protein}g protein</span>
+                      {caloriesGoal > 0 && (
+                        <span className="text-xs text-[#f5a623]">{meal.calories} kcal</span>
+                      )}
+                      {carbsGoal > 0 && (
+                        <span className="text-xs text-[#3ec9c0]">{meal.carbs}g carbs</span>
+                      )}
+                      {fatGoal > 0 && (
+                        <span className="text-xs text-[#f2779a]">{meal.fat}g fat</span>
+                      )}
+                    </div>
                   </div>
+
                   <button
                     onClick={() => deleteMeal(meal.id)}
                     className="flex-shrink-0 text-neutral-700 hover:text-neutral-400 transition-colors p-1 -mr-1"
