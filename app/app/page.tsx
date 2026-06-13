@@ -27,12 +27,15 @@ interface DailyLog {
   meals: LoggedMeal[];
 }
 
-type Screen = "init" | "goal-setup" | "dashboard" | "scan" | "analyzing" | "results";
+type Screen = "init" | "settings" | "dashboard" | "scan" | "analyzing" | "results";
 
 // ── Storage ───────────────────────────────────────────────────────────────────
 
 const GOAL_KEY = "vitano_protein_goal";
 const LOG_KEY = "vitano_daily_log";
+const CAL_GOAL_KEY = "vitano_calories_goal";
+const CARBS_GOAL_KEY = "vitano_carbs_goal";
+const FAT_GOAL_KEY = "vitano_fat_goal";
 
 function todayString(): string {
   return new Date().toDateString();
@@ -164,6 +167,7 @@ function ProteinRing({ consumed, goal }: { consumed: number; goal: number }) {
   const progress = goal > 0 ? Math.min(consumed / goal, 1) : 0;
   const offset = circ * (1 - progress);
   const done = goal > 0 && consumed >= goal;
+  const remaining = Math.max(0, goal - consumed);
 
   return (
     <div className="relative flex items-center justify-center">
@@ -187,16 +191,18 @@ function ProteinRing({ consumed, goal }: { consumed: number; goal: number }) {
       </svg>
       <div className="absolute flex flex-col items-center">
         <span className="text-5xl font-black text-white tabular-nums leading-none">{consumed}</span>
-        <span className="text-[11px] text-neutral-500 mt-1.5 tracking-wide">of {goal}g protein</span>
-        {done && (
-          <span className="text-[11px] text-emerald-400 font-semibold mt-1">Goal hit</span>
-        )}
+        <span className="text-[11px] text-neutral-500 mt-1.5 tracking-wide">of {goal}g</span>
+        {done
+          ? <span className="text-[11px] text-emerald-400 font-semibold mt-1">Goal hit</span>
+          : <span className="text-[11px] text-neutral-600 mt-0.5">{remaining}g left</span>
+        }
       </div>
     </div>
   );
 }
 
 // ── Macro Ring ────────────────────────────────────────────────────────────────
+// goal=0 → solid colored ring (no progress), goal>0 → grey track + colored arc
 
 function MacroRing({
   label,
@@ -209,19 +215,21 @@ function MacroRing({
   value: number;
   unit: string;
   color: string;
-  goal?: number;
+  goal: number;
 }) {
   const r = 32;
   const size = 84;
   const cx = size / 2;
   const cy = size / 2;
   const circ = 2 * Math.PI * r;
-  const hasGoal = typeof goal === "number" && goal > 0;
+  const hasGoal = goal > 0;
   const progress = hasGoal ? Math.min(value / goal, 1) : 0;
   const offset = circ * (1 - progress);
+  const done = hasGoal && value >= goal;
+  const remaining = hasGoal ? Math.max(0, goal - value) : 0;
 
   return (
-    <div className="flex flex-col items-center gap-1.5">
+    <div className="flex flex-col items-center gap-1">
       <div className="relative flex items-center justify-center">
         <svg
           width={size}
@@ -229,26 +237,35 @@ function MacroRing({
           viewBox={`0 0 ${size} ${size}`}
           style={{ transform: "rotate(-90deg)" }}
         >
-          <circle cx={cx} cy={cy} r={r} fill="none" stroke="#1c1c1c" strokeWidth={7} />
-          {hasGoal && (
-            <circle
-              cx={cx} cy={cy} r={r}
-              fill="none"
-              stroke={color}
-              strokeWidth={7}
-              strokeLinecap="round"
-              strokeDasharray={circ}
-              strokeDashoffset={progress > 0 ? offset : circ}
-              style={{ transition: "stroke-dashoffset 0.8s cubic-bezier(0.4,0,0.2,1)" }}
-            />
+          {hasGoal ? (
+            <>
+              <circle cx={cx} cy={cy} r={r} fill="none" stroke="#1c1c1c" strokeWidth={7} />
+              <circle
+                cx={cx} cy={cy} r={r}
+                fill="none"
+                stroke={color}
+                strokeWidth={7}
+                strokeLinecap="round"
+                strokeDasharray={circ}
+                strokeDashoffset={progress > 0 ? offset : circ}
+                style={{ transition: "stroke-dashoffset 0.8s cubic-bezier(0.4,0,0.2,1)" }}
+              />
+            </>
+          ) : (
+            <circle cx={cx} cy={cy} r={r} fill="none" stroke={color} strokeWidth={7} />
           )}
         </svg>
         <div className="absolute flex flex-col items-center">
-          <span className="text-[17px] font-bold tabular-nums leading-none" style={{ color }}>{value}</span>
+          <span className="text-[17px] font-bold text-white tabular-nums leading-none">{value}</span>
           <span className="text-[9px] text-neutral-600 mt-0.5">{unit}</span>
         </div>
       </div>
       <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-500">{label}</span>
+      {hasGoal && (
+        done
+          ? <span className="text-[9px] text-emerald-500 font-semibold -mt-0.5">Done</span>
+          : <span className="text-[9px] text-neutral-700 -mt-0.5">{remaining}{unit} left</span>
+      )}
     </div>
   );
 }
@@ -336,13 +353,80 @@ function MacroField({
   );
 }
 
+// ── Optional goal input row ───────────────────────────────────────────────────
+
+function GoalInput({
+  label,
+  color,
+  value,
+  onChange,
+  onClear,
+  placeholder,
+  unit,
+}: {
+  label: string;
+  color: string;
+  value: string;
+  onChange: (v: string) => void;
+  onClear: () => void;
+  placeholder: string;
+  unit: string;
+}) {
+  return (
+    <div>
+      <label
+        className="text-[11px] font-semibold uppercase tracking-[0.14em] block mb-1.5"
+        style={{ color }}
+      >
+        {label}
+      </label>
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <input
+            type="number"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder={placeholder}
+            min={1}
+            className="w-full px-4 py-3.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white text-lg font-semibold focus:outline-none transition-colors tabular-nums placeholder:text-neutral-700"
+            style={{ borderColor: value ? `${color}33` : undefined }}
+          />
+          <span className="absolute right-4 top-1/2 -translate-y-1/2 text-neutral-500 text-sm pointer-events-none">
+            {unit}
+          </span>
+        </div>
+        {value ? (
+          <button
+            onClick={onClear}
+            className="w-12 flex items-center justify-center rounded-xl border border-neutral-800 text-neutral-600 hover:text-white hover:border-neutral-600 transition-colors flex-shrink-0"
+            aria-label="Clear"
+          >
+            <IconX className="w-4 h-4" />
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function AppPage() {
   const [mounted, setMounted] = useState(false);
   const [screen, setScreen] = useState<Screen>("init");
-  const [proteinGoal, setProteinGoal] = useState(160);
-  const [goalDraft, setGoalDraft] = useState("160");
+
+  // Protein goal — 0 means not yet set (first-time user)
+  const [proteinGoal, setProteinGoal] = useState(0);
+  const [goalDraft, setGoalDraft] = useState("");
+
+  // Optional macro goals — 0 means no goal
+  const [caloriesGoal, setCaloriesGoal] = useState(0);
+  const [carbsGoal, setCarbsGoal] = useState(0);
+  const [fatGoal, setFatGoal] = useState(0);
+  const [calDraft, setCalDraft] = useState("");
+  const [carbsDraft, setCarbsDraft] = useState("");
+  const [fatDraft, setFatDraft] = useState("");
+
   const [dailyLog, setDailyLog] = useState<DailyLog>({ date: todayString(), meals: [] });
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [macros, setMacros] = useState<Macros | null>(null);
@@ -351,10 +435,13 @@ export default function AppPage() {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const libraryInputRef = useRef<HTMLInputElement>(null);
 
-  // Load from localStorage once on mount
+  // Load all goals and daily log from localStorage on mount
   useEffect(() => {
-    const savedGoal = localStorage.getItem(GOAL_KEY);
-    const savedLog = localStorage.getItem(LOG_KEY);
+    const savedGoal   = localStorage.getItem(GOAL_KEY);
+    const savedCal    = localStorage.getItem(CAL_GOAL_KEY);
+    const savedCarbs  = localStorage.getItem(CARBS_GOAL_KEY);
+    const savedFat    = localStorage.getItem(FAT_GOAL_KEY);
+    const savedLog    = localStorage.getItem(LOG_KEY);
 
     const goal = savedGoal ? parseInt(savedGoal, 10) : 0;
     if (goal > 0) {
@@ -362,27 +449,53 @@ export default function AppPage() {
       setGoalDraft(String(goal));
     }
 
+    const cal = savedCal ? parseInt(savedCal, 10) : 0;
+    if (cal > 0) { setCaloriesGoal(cal); setCalDraft(String(cal)); }
+
+    const carbs = savedCarbs ? parseInt(savedCarbs, 10) : 0;
+    if (carbs > 0) { setCarbsGoal(carbs); setCarbsDraft(String(carbs)); }
+
+    const fat = savedFat ? parseInt(savedFat, 10) : 0;
+    if (fat > 0) { setFatGoal(fat); setFatDraft(String(fat)); }
+
     if (savedLog) {
       try {
         const log = JSON.parse(savedLog) as DailyLog;
-        if (log.date === todayString()) {
-          setDailyLog(log);
-        }
-        // new day → keep initial empty log, goal persists separately
+        if (log.date === todayString()) setDailyLog(log);
+        // new day → keep empty log; goal persists separately
       } catch {
         // corrupted — start fresh
       }
     }
 
     setMounted(true);
-    setScreen(goal > 0 ? "dashboard" : "goal-setup");
+    setScreen(goal > 0 ? "dashboard" : "settings");
   }, []);
 
-  // Persist goal
+  // Persist protein goal
   useEffect(() => {
     if (!mounted || proteinGoal <= 0) return;
     localStorage.setItem(GOAL_KEY, String(proteinGoal));
   }, [proteinGoal, mounted]);
+
+  // Persist optional goals
+  useEffect(() => {
+    if (!mounted) return;
+    if (caloriesGoal > 0) localStorage.setItem(CAL_GOAL_KEY, String(caloriesGoal));
+    else localStorage.removeItem(CAL_GOAL_KEY);
+  }, [caloriesGoal, mounted]);
+
+  useEffect(() => {
+    if (!mounted) return;
+    if (carbsGoal > 0) localStorage.setItem(CARBS_GOAL_KEY, String(carbsGoal));
+    else localStorage.removeItem(CARBS_GOAL_KEY);
+  }, [carbsGoal, mounted]);
+
+  useEffect(() => {
+    if (!mounted) return;
+    if (fatGoal > 0) localStorage.setItem(FAT_GOAL_KEY, String(fatGoal));
+    else localStorage.removeItem(FAT_GOAL_KEY);
+  }, [fatGoal, mounted]);
 
   // Persist daily log
   useEffect(() => {
@@ -401,11 +514,21 @@ export default function AppPage() {
     { protein: 0, calories: 0, carbs: 0, fat: 0 }
   );
 
-  // Handlers
-  function saveGoal() {
+  // Save all goals and navigate to dashboard
+  function saveSettings() {
     const n = parseInt(goalDraft, 10);
     if (!n || n <= 0) return;
     setProteinGoal(n);
+
+    const cal = parseInt(calDraft, 10);
+    setCaloriesGoal(!isNaN(cal) && cal > 0 ? cal : 0);
+
+    const carbs = parseInt(carbsDraft, 10);
+    setCarbsGoal(!isNaN(carbs) && carbs > 0 ? carbs : 0);
+
+    const fat = parseInt(fatDraft, 10);
+    setFatGoal(!isNaN(fat) && fat > 0 ? fat : 0);
+
     setScreen("dashboard");
   }
 
@@ -463,54 +586,117 @@ export default function AppPage() {
     return <div className="min-h-screen bg-[#0a0a0a]" />;
   }
 
-  // ── Goal setup ────────────────────────────────────────────────────────────────
-  if (screen === "goal-setup") {
+  // ── Settings ──────────────────────────────────────────────────────────────────
+  if (screen === "settings") {
+    const isReturning = proteinGoal > 0;
+
     return (
       <div className="flex flex-col min-h-screen px-6 max-w-md mx-auto w-full">
-        <div className="pt-12 mb-16">
-          <Image
-            src="/vitano_logo_transparent_white.png"
-            alt="Vitano"
-            height={28}
-            width={112}
-            className="object-contain"
-            priority
-          />
+        {/* Header */}
+        <div className="pt-10 pb-6 flex items-center gap-3">
+          {isReturning ? (
+            <>
+              <button
+                onClick={() => setScreen("dashboard")}
+                className="text-neutral-500 hover:text-white transition-colors -ml-1"
+                aria-label="Back"
+              >
+                <IconChevronLeft className="w-5 h-5" />
+              </button>
+              <h1 className="text-lg font-bold tracking-tight">Goals</h1>
+            </>
+          ) : (
+            <Image
+              src="/vitano_logo_transparent_white.png"
+              alt="Vitano"
+              height={28}
+              width={112}
+              className="object-contain"
+              priority
+            />
+          )}
         </div>
 
-        <div className="flex-1 flex flex-col justify-center pb-16">
-          <h1 className="text-[1.75rem] font-black tracking-tight mb-2">
-            Set your protein goal
-          </h1>
-          <p className="text-neutral-500 text-sm leading-relaxed mb-10">
-            How many grams of protein do you aim to hit each day? You can change this anytime.
-          </p>
+        {!isReturning && (
+          <div className="mb-8">
+            <h1 className="text-[1.75rem] font-black tracking-tight mb-2">Set your goals</h1>
+            <p className="text-neutral-500 text-sm leading-relaxed">
+              Start with your protein target. Add calorie, carb, and fat goals if you want filling progress rings for those too.
+            </p>
+          </div>
+        )}
 
-          <label className="text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-500 block mb-2">
-            Daily protein goal
-          </label>
-          <div className="relative mb-8">
-            <input
-              type="number"
-              value={goalDraft}
-              onChange={(e) => setGoalDraft(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && saveGoal()}
-              className="w-full px-4 py-4 bg-neutral-950 border border-neutral-800 rounded-xl text-white text-2xl font-bold focus:outline-none focus:border-[#9b6bff] transition-colors tabular-nums"
-              placeholder="160"
-              min={1}
-              max={500}
-              autoFocus
-            />
-            <span className="absolute right-4 top-1/2 -translate-y-1/2 text-neutral-500 text-sm pointer-events-none">
-              g / day
-            </span>
+        <div className="flex flex-col gap-6 flex-1 pb-8">
+          {/* Protein — required */}
+          <div>
+            <div className="flex items-baseline gap-2 mb-2">
+              <label className="text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-500">
+                Protein
+              </label>
+              <span className="text-[10px] font-semibold text-[#9b6bff] uppercase tracking-wide">required</span>
+            </div>
+            <div className="relative">
+              <input
+                type="number"
+                value={goalDraft}
+                onChange={(e) => setGoalDraft(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && saveSettings()}
+                className="w-full px-4 py-4 bg-neutral-950 border border-neutral-800 rounded-xl text-white text-2xl font-bold focus:outline-none focus:border-[#9b6bff] transition-colors tabular-nums placeholder:text-neutral-700"
+                placeholder="160"
+                min={1}
+                max={500}
+                autoFocus={!isReturning}
+              />
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-neutral-500 text-sm pointer-events-none">
+                g / day
+              </span>
+            </div>
           </div>
 
+          {/* Optional macros */}
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-700 mb-4">
+              Optional — set a goal to track as a filling ring
+            </p>
+            <div className="flex flex-col gap-3">
+              <GoalInput
+                label="Calories"
+                color="#f5a623"
+                value={calDraft}
+                onChange={setCalDraft}
+                onClear={() => setCalDraft("")}
+                placeholder="e.g. 2200"
+                unit="kcal"
+              />
+              <GoalInput
+                label="Carbs"
+                color="#3ec9c0"
+                value={carbsDraft}
+                onChange={setCarbsDraft}
+                onClear={() => setCarbsDraft("")}
+                placeholder="e.g. 250"
+                unit="g"
+              />
+              <GoalInput
+                label="Fat"
+                color="#f2779a"
+                value={fatDraft}
+                onChange={setFatDraft}
+                onClear={() => setFatDraft("")}
+                placeholder="e.g. 75"
+                unit="g"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="pb-10">
           <button
-            onClick={saveGoal}
-            className="w-full py-4 rounded-xl bg-[#6d3fd4] text-white font-semibold text-[15px] hover:bg-[#9b6bff] active:scale-[0.98] transition-all tracking-wide"
+            onClick={saveSettings}
+            disabled={!goalDraft || parseInt(goalDraft, 10) <= 0}
+            className="w-full py-4 rounded-xl bg-[#6d3fd4] text-white font-semibold text-[15px] hover:bg-[#9b6bff] active:scale-[0.98] transition-all tracking-wide disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            Set goal
+            {isReturning ? "Save" : "Set goals"}
           </button>
         </div>
       </div>
@@ -538,9 +724,15 @@ export default function AppPage() {
             priority
           />
           <button
-            onClick={() => { setGoalDraft(String(proteinGoal)); setScreen("goal-setup"); }}
+            onClick={() => {
+              setGoalDraft(String(proteinGoal));
+              setCalDraft(caloriesGoal > 0 ? String(caloriesGoal) : "");
+              setCarbsDraft(carbsGoal > 0 ? String(carbsGoal) : "");
+              setFatDraft(fatGoal > 0 ? String(fatGoal) : "");
+              setScreen("settings");
+            }}
             className="text-neutral-600 hover:text-white transition-colors p-1"
-            aria-label="Edit goal"
+            aria-label="Edit goals"
           >
             <IconPencil className="w-4 h-4" />
           </button>
@@ -555,11 +747,11 @@ export default function AppPage() {
           <ProteinRing consumed={totals.protein} goal={proteinGoal} />
         </div>
 
-        {/* Secondary macros */}
-        <div className="mx-5 flex items-center justify-around mb-7">
-          <MacroRing label="Calories" value={totals.calories} unit="kcal" color="#f5a623" />
-          <MacroRing label="Carbs" value={totals.carbs} unit="g" color="#3ec9c0" />
-          <MacroRing label="Fat" value={totals.fat} unit="g" color="#f2779a" />
+        {/* Secondary macro rings */}
+        <div className="mx-5 flex items-start justify-around mb-7">
+          <MacroRing label="Calories" value={totals.calories} unit="kcal" color="#f5a623" goal={caloriesGoal} />
+          <MacroRing label="Carbs"    value={totals.carbs}    unit="g"    color="#3ec9c0" goal={carbsGoal} />
+          <MacroRing label="Fat"      value={totals.fat}      unit="g"    color="#f2779a" goal={fatGoal} />
         </div>
 
         {/* Meal list */}
